@@ -1,3 +1,21 @@
+compiz (1:0.9.14.2+22.10.20220822-0ubuntu15) questing; urgency=medium
+
+  * No-change rebuild for libxml2 soname change.
+
+ -- Matthias Klose <doko@ubuntu.com>  Mon, 26 May 2025 14:22:32 +0200
+
+compiz (1:0.9.14.2+22.10.20220822-0ubuntu14) questing; urgency=medium
+
+  * No-change rebuild for libxml2 soname change.
+
+ -- Matthias Klose <doko@ubuntu.com>  Wed, 21 May 2025 08:15:19 +0200
+
+compiz (1:0.9.14.2+22.10.20220822-0ubuntu13) plucky; urgency=medium
+
+  * No-change rebuild for Python 3.13 as the default.
+
+ -- Matthias Klose <doko@ubuntu.com>  Fri, 03 Jan 2025 12:03:11 +0100
+
 compiz (1:0.9.14.2+22.10.20220822-0ubuntu12) noble; urgency=medium
 
   * No-change rebuild for CVE-2024-3094
