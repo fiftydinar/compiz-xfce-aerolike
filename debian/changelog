@@ -1,3 +1,9 @@
+compiz (1:0.9.14.2+22.10.20220822-0ubuntu16) questing; urgency=medium
+
+  * Build-depend on python3-setuptools.
+
+ -- Matthias Klose <doko@ubuntu.com>  Tue, 27 May 2025 18:06:22 +0200
+
 compiz (1:0.9.14.2+22.10.20220822-0ubuntu15) questing; urgency=medium
 
   * No-change rebuild for libxml2 soname change.
