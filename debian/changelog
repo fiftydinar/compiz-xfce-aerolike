@@ -1,3 +1,10 @@
+compiz (1:0.9.14.2+22.10.20220822-0ubuntu17) UNRELEASED; urgency=medium
+
+  [ Leso_KN ]
+  * Fix crash in vertexbuffer (LP: #2060620).
+
+ -- Dmitry Shachnev <mitya57@ubuntu.com>  Sun, 28 Sep 2025 22:24:03 +0300
+
 compiz (1:0.9.14.2+22.10.20220822-0ubuntu16) questing; urgency=medium
 
   * Build-depend on python3-setuptools.
