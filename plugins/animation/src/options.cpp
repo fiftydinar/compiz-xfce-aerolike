@@ -232,7 +232,7 @@ PrivateAnimScreen::updateOptionSet (OptionSet  *os,
 
 	CompOption::Value v;
 
-	os->pairs.push_back (IdValuePair ());
+	os->pairs.emplace_back ();
 	IdValuePair *pair = &os->pairs[i];
 
 	pair->pluginInfo = chosenExtensionPlugin;
