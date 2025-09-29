@@ -169,7 +169,7 @@ class BonanzaAnim : public ParticleAnim
 		 float size,
 		float time);
 
-	void step (float);
+	void step ();
     protected:
 
 	int  mAnimFireDirection;

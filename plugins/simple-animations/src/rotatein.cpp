@@ -155,7 +155,7 @@ RotateInAnim::prePaintWindow ()
 }
 
 void
-RotateInAnim::postPaintWindow ()
+RotateInAnim::postPaintWindow (const GLMatrix &)
 {
     float forwardProgress = getProgress ();
     float xRot, yRot;

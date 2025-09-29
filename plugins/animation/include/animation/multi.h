@@ -341,10 +341,13 @@ public:
 		    (matrix, region, clip, maxGridWidth, maxGridHeight);
 	}
 
-	void drawGeometry ()
+	void drawGeometry (GLTexture                 *texture,
+	                   const GLMatrix            &transform,
+	                   const GLWindowPaintAttrib &attrib,
+	                   unsigned int              mask)
 	{
 	    setCurrAnimNumber (mAWindow, currentAnim);
-	    animList.at (currentAnim)->drawGeometry ();
+	    animList.at (currentAnim)->drawGeometry (texture, transform, attrib, mask);
 	}
 
 	bool paintWindowUsed ()

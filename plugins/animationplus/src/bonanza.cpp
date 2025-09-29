@@ -168,7 +168,7 @@ BonanzaAnim::genFire (int x,
 }
 
 void
-BonanzaAnim::step (float time)
+BonanzaAnim::step ()
 {
     float timestep = 2.0;
     CompRect rect = mWindow->outputRect ();
@@ -223,7 +223,7 @@ BonanzaAnim::step (float time)
 	     rect.centerY (),
              radius,
              WIN_W(mWindow) / 40.0,
-             time);
+             timestep);
 
     if (mRemainingTime <= 0 && mParticleSystems.size () && mParticleSystems.at (0).active ())
     {

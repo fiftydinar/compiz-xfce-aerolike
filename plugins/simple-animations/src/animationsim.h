@@ -164,7 +164,7 @@ class RotateInAnim: public TransformAnim,
 	void updateBB (CompOutput &output) { TransformAnim::updateBB (output); }
 	void applyTransform ();
 	void prePaintWindow ();
-	void postPaintWindow ();
+	void postPaintWindow (const GLMatrix &);
 
 	inline float getProgress ()
 	{
