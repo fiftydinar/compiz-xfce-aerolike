@@ -154,6 +154,23 @@ install (
     DESTINATION ${libdir}/pkgconfig
 )
 
+compiz_configure_file (
+    ${CMAKE_SOURCE_DIR}/compiz.service.in
+    ${CMAKE_BINARY_DIR}/compiz.service
+)
+
+pkg_check_modules(SYSTEMD systemd)
+if (SYSTEMD_FOUND)
+    pkg_get_variable(SYSTEMD_USERUNITDIR systemd systemduserunitdir)
+else (SYSTEMD_FOUND)
+    set(SYSTEMD_USERUNITDIR ${CMAKE_INSTALL_PREFIX}/lib/systemd/user)
+endif (SYSTEMD_FOUND)
+
+install (
+    FILES ${CMAKE_BINARY_DIR}/compiz.service
+    DESTINATION ${SYSTEMD_USERUNITDIR}
+)
+
 set (COMPIZ_INTERNAL_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
