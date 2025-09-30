@@ -1,4 +1,4 @@
-compiz (1:0.9.14.2+22.10.20220822-0ubuntu17) UNRELEASED; urgency=medium
+compiz (1:0.9.14.2+25.10.20250930-0ubuntu1) questing; urgency=medium
 
   [ Leso_KN ]
   * Fix crash in vertexbuffer (LP: #2060620).
@@ -6,7 +6,11 @@ compiz (1:0.9.14.2+22.10.20220822-0ubuntu17) UNRELEASED; urgency=medium
   [ Matthew Dinslage ]
   * Fix GCC 15 warnings about incompatible pointer types (LP: #2115117).
 
- -- Dmitry Shachnev <mitya57@ubuntu.com>  Sun, 28 Sep 2025 22:24:03 +0300
+  [ Dmitry Shachnev ]
+  * Fix more GCC 15 errors.
+  * Add systemd service file.
+
+ -- Dmitry Shachnev <mitya57@ubuntu.com>  Tue, 30 Sep 2025 15:59:55 +0300
 
 compiz (1:0.9.14.2+22.10.20220822-0ubuntu16) questing; urgency=medium
 
