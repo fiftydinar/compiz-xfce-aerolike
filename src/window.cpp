@@ -543,6 +543,16 @@ CompWindow::changeState (unsigned int newState)
     unsigned int oldState = priv->state;
     priv->state           = newState;
 
+    if (!priv->inAutoDetectFullscreen &&
+	((oldState ^ newState) & CompWindowStateFullscreenMask))
+    {
+	/* The window or the user toggled fullscreen. Auto-detection has to respect
+	 * that: either it owns the state and just lost it, or the request came
+	 * from outside and the geometry must not put it back. */
+	priv->autoFullscreen       = false;
+	priv->fullscreenSuppressed = !(newState & CompWindowStateFullscreenMask);
+    }
+
     recalcType ();
     recalcActions ();
     stateChangeNotify (oldState);
@@ -1698,22 +1708,55 @@ PrivateWindow::autoDetectFullscreen ()
     if (!(priv->wmType & (CompWindowTypeNormalMask | CompWindowTypeUnknownMask)))
 	return;
 
-    if (priv->state & CompWindowStateFullscreenMask)
+    int  wX2 = priv->frameGeometry.x () + priv->frameGeometry.width ();
+    int  wY2 = priv->frameGeometry.y () + priv->frameGeometry.height ();
+    bool coversOutput = false;
+
+    /* fullscreenOutput() is the bounding box of every monitor, which a window
+     * filling exactly one of them does not cover. Test against each output. */
+    foreach (const CompOutput &output, screen->outputDevs ())
+    {
+	int oX2 = output.x () + output.width ();
+	int oY2 = output.y () + output.height ();
+
+	if (priv->frameGeometry.x () <= output.x () &&
+	    priv->frameGeometry.y () <= output.y () &&
+	    wX2 >= oX2 && wY2 >= oY2)
+	{
+	    coversOutput = true;
+	    break;
+	}
+    }
+
+    if (!coversOutput)
+    {
+	/* The window no longer fills an output. Take the state back if it was
+	 * this detection that set it, so maximizing leaves no fullscreen window
+	 * behind. */
+	if (priv->autoFullscreen)
+	{
+	    priv->inAutoDetectFullscreen = true;
+	    window->changeState (priv->state & ~CompWindowStateFullscreenMask);
+	    priv->inAutoDetectFullscreen = false;
+	    priv->autoFullscreen       = false;
+	    window->updateAttributes (CompStackingUpdateModeNormal);
+	}
+
+	/* Detection may apply again, so an explicit toggle-off is not
+	 * re-applied on the next resize. */
+	priv->fullscreenSuppressed = false;
+	return;
+    }
+
+    if (priv->fullscreenSuppressed ||
+	(priv->state & CompWindowStateFullscreenMask))
 	return;
 
-    CompOutput &fsOutput = screen->fullscreenOutput ();
-    int fsX2 = fsOutput.x () + fsOutput.width ();
-    int fsY2 = fsOutput.y () + fsOutput.height ();
-    int wX2  = priv->frameGeometry.x () + priv->frameGeometry.width ();
-    int wY2  = priv->frameGeometry.y () + priv->frameGeometry.height ();
-
-    if (priv->frameGeometry.x () <= fsOutput.x () &&
-	priv->frameGeometry.y () <= fsOutput.y () &&
-	wX2 >= fsX2 && wY2 >= fsY2)
-    {
-	window->changeState (priv->state | CompWindowStateFullscreenMask);
-	window->updateAttributes (CompStackingUpdateModeNormal);
-    }
+    priv->inAutoDetectFullscreen = true;
+    window->changeState (priv->state | CompWindowStateFullscreenMask);
+    priv->inAutoDetectFullscreen = false;
+    priv->autoFullscreen       = true;
+    window->updateAttributes (CompStackingUpdateModeNormal);
 }
 
 bool
@@ -6748,6 +6791,9 @@ PrivateWindow::PrivateWindow () :
     frameSyncAlarm (None),
     frameReady (false),
     frameCounterValue (),
+    autoFullscreen (false),
+    fullscreenSuppressed (false),
+    inAutoDetectFullscreen (false),
     closeRequests (false),
     lastCloseRequestTime (0),
 

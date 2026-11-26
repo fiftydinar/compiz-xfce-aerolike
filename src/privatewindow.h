@@ -472,6 +472,16 @@ class PrivateWindow :
 	bool                 frameReady;
 	XSyncValue           frameCounterValue;
 
+	/* Whether the fullscreen state of this window was set by auto-detection
+	 * rather than by the client or the user, and whether it was just taken back
+	 * so detection should not put it in place again. */
+	bool autoFullscreen;
+	bool fullscreenSuppressed;
+
+	/* Set while autoDetectFullscreen() changes the state itself, so changeState()
+	 * tells a decision of its own apart from an external request. */
+	bool inAutoDetectFullscreen;
+
 	int closeRequests;
 	Time lastCloseRequestTime;
 
