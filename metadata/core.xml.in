@@ -8,7 +8,24 @@
 		<_short>Active Plugins</_short>
 		<_long>List of currently active plugins</_long>
 		<type>string</type>
-		<default_plugins/>
+		<default>
+		    <value>composite</value>
+		    <value>opengl</value>
+		    <value>decor</value>
+		    <value>grid</value>
+		    <value>move</value>
+		    <value>place</value>
+		    <value>regex</value>
+		    <value>resize</value>
+		    <value>snap</value>
+		    <value>text</value>
+		    <value>compiztoolbox</value>
+		    <value>ring</value>
+		    <value>wall</value>
+		    <value>animation</value>
+		    <value>blur</value>
+		    <value>extrawm</value>
+		</default>
 	    </option>
 	    <option name="audible_bell" type="bool">
 		<_short>Audible Bell</_short>

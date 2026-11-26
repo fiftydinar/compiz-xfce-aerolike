@@ -597,7 +597,7 @@ profileNameFilter (const struct dirent *name)
 {
     int length = strlen (name->d_name);
 
-    if (strncmp (name->d_name + length - 6, ".ini++", 6))
+    if (strncmp (name->d_name + length - 6, ".ini", 6))
 	return 0;
 
     return 1;

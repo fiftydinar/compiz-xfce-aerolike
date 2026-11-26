@@ -670,9 +670,9 @@ class ProfileBackendPage(object):
             self.ProfileComboBox.append_text(profile.Name)
             if name == self.Context.CurrentProfile.Name:
                 active = i
+        self.ProfileComboBox.set_active(active+1)
         self.ProfileHandler = self.ProfileComboBox.connect("changed",
             self.ProfileChangedAddTimeout)
-        self.ProfileComboBox.set_active(active+1)
         profileAdd.connect("clicked", self.AddProfile)
         profileRemove.connect("clicked", self.RemoveProfile)
         profileBox.pack_start(self.ProfileComboBox, True, True, 0)

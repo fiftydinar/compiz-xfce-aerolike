@@ -578,20 +578,20 @@
 			<_short>Preview Outline Color</_short>
 			<_long>Color and opacity of the resize indicator preview outline.</_long>
 			<default>
-			    <red>0xfbfb</red>
-			    <green>0x8b8b</green>
-			    <blue>0x0</blue>
-			    <alpha>0x9f9f</alpha>
+			    <red>0x3f3f</red>
+			    <green>0xb8b8</green>
+			    <blue>0xbfbf</blue>
+			    <alpha>0x7f7f</alpha>
 			</default>
 		</option>
 		<option name="fill_color" type="color">
 			<_short>Preview Fill Color</_short>
 			<_long>Fill color and opacity of the resize indicator preview.</_long>
 			<default>
-			    <red>0xfbfb</red>
-			    <green>0x8b8b</green>
-			    <blue>0x0</blue>
-			    <alpha>0x4f4f</alpha>
+			    <red>0x1818</red>
+			    <green>0x8787</green>
+			    <blue>0x7c7c</blue>
+			    <alpha>0x7f7f</alpha>
 			</default>
 		</option>
 		<option name="disable_blend" type="bool">
