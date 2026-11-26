@@ -105,7 +105,7 @@ getLocale ()
 
 Bool usingProtobuf = TRUE;
 
-#define PB_ABI_VERSION 20090314
+#define PB_ABI_VERSION 20260731
 
 typedef metadata::PluginInfo PluginInfoMetadata;
 typedef metadata::PluginBrief PluginBriefMetadata;
@@ -2697,27 +2697,53 @@ loadPluginMetadataFromProtoBuf (char *pbPath,
     return success;
 }
 
+// Returns MD5 hex digest of the given file's content, or NULL on error.
+static gchar *
+xmlContentHash (const char *xmlFilePath)
+{
+    gchar *contents = NULL;
+    gsize len = 0;
+
+    if (!g_file_get_contents (xmlFilePath, &contents, &len, NULL))
+	return NULL;
+
+    gchar *hash = g_compute_checksum_for_data (G_CHECKSUM_MD5,
+					       (const guchar *) contents, len);
+    g_free (contents);
+
+    return hash;
+}
+
 // Returns TRUE if successfully loads .pb file and .pb is up to date.
 static Bool
 checkAndLoadProtoBuf (char *pbPath,
 		      struct stat *pbStat,
 		      struct stat *xmlStat,
-		      PluginBriefMetadata *pluginBriefPB)
+		      PluginBriefMetadata *pluginBriefPB,
+		      const char *xmlFilePath)
 {
     const PluginInfoMetadata &pluginInfoPB = pluginBriefPB->info ();
+
+    gchar *xmlHash = xmlContentHash (xmlFilePath);
 
     if (pbStat->st_mtime < xmlStat->st_mtime ||     // is .pb older than .xml?
 	!loadPluginMetadataFromProtoBuf (pbPath, pluginBriefPB, NULL) ||
 	(!basicMetadata && pluginBriefPB->info ().basic_metadata ()) ||
 	pluginInfoPB.pb_abi_version () != PB_ABI_VERSION ||
-	pluginInfoPB.time () != (unsigned long)xmlStat->st_mtime ||
-	// xml modification time mismatch?
+	pluginInfoPB.content_hash () != (xmlHash ? xmlHash : "") ||
+	// xml content hash mismatch? (reliable even when mtime is
+	// identical across bootc/ostree deployments)
 	(pluginInfoPB.locale () != "NONE" &&
 	 pluginInfoPB.locale () != shortLocale))
     {
+	if (xmlHash)
+	    g_free (xmlHash);
 	// .pb needs update
 	return FALSE;
     }
+
+    if (xmlHash)
+	g_free (xmlHash);
     return TRUE;
 }
 
@@ -2726,7 +2752,8 @@ static void
 writePBFile (char *pbFilePath,
 	     PluginMetadata *pluginPB,
 	     PluginBriefMetadata *pluginBriefPB,
-	     struct stat *xmlStat)
+	     struct stat *xmlStat,
+	     const char *xmlFilePath)
 {
     if (!createProtoBufCacheDir ())
 	return;
@@ -2746,6 +2773,11 @@ writePBFile (char *pbFilePath,
 	pluginInfoPB->set_time ((unsigned long)xmlStat->st_mtime);
 	pluginInfoPB->set_brief_metadata (TRUE);
     }
+
+    gchar *xmlHash = xmlContentHash (xmlFilePath);
+    pluginInfoPB->set_content_hash (xmlHash ? xmlHash : "");
+    if (xmlHash)
+	g_free (xmlHash);
 
     pluginInfoPB->set_basic_metadata (basicMetadata);
 
@@ -2871,7 +2903,7 @@ loadPluginFromXMLFile (CCSContext * context, char *xmlName, char *xmlDirPath)
 	if (!error)
 	{
 	    if (checkAndLoadProtoBuf (pbFilePath, &pbStat, &xmlStat,
-				      &persistentPluginBriefPB))
+				      &persistentPluginBriefPB, xmlFilePath))
 	    {
 		// Found and loaded .pb
 		if (!strcmp (name, "core"))
@@ -2929,16 +2961,21 @@ loadPluginFromXMLFile (CCSContext * context, char *xmlName, char *xmlDirPath)
 	}
 	close (fd);
     }
-    free (xmlFilePath);
 
 #ifdef USE_PROTOBUF
     if (usingProtobuf && xmlLoaded)
     {
 	if (removePB)
 	    remove (pbFilePath); // Attempt to remove .pb
-	writePBFile (pbFilePath, NULL, &persistentPluginBriefPB, &xmlStat);
+	writePBFile (pbFilePath, NULL, &persistentPluginBriefPB, &xmlStat,
+		     xmlFilePath);
 	updatePBFilePath (context, name, pbFilePath);
     }
+#endif
+
+    free (xmlFilePath);
+
+#ifdef USE_PROTOBUF
 
     if (pbFilePath)
 	free (pbFilePath);
@@ -3264,7 +3301,7 @@ ccsLoadPluginSettings (CCSPlugin * plugin)
 #ifdef USE_PROTOBUF
     if (pluginPBToWrite && pPrivate->pbFilePath && loadedAtLeastBriefPB)
 	writePBFile (pPrivate->pbFilePath, (PluginMetadata *) pluginPBToWrite,
-		     NULL, &xmlStat);
+		     NULL, &xmlStat, pPrivate->xmlFile);
 #endif
     ccsDebug ("done");
 
