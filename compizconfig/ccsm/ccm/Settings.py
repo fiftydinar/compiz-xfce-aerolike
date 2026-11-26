@@ -100,7 +100,7 @@ class Setting(object):
     
     def DoReset(self, foo):
         self.Setting.Reset()
-        self.Setting.Plugin.Context.Write()
+        self.Setting.Plugin.Context.Write(onlyChanged=False)
         self.Read()
 
     def MakeLabel(self):
@@ -589,7 +589,7 @@ class BaseListSetting(Setting):
     def DoReset(self, widget):
         for setting in self.Settings:
             setting.Reset()
-        self.Settings[0].Plugin.Context.Write()
+        self.Settings[0].Plugin.Context.Write(onlyChanged=False)
         self.Read()
 
     def MakeLabel(self):
@@ -952,7 +952,7 @@ class KeySetting (EditableActionSetting):
         conflict = KeyConflict (self.Setting, self.Setting.DefaultValue)
         if conflict.Resolve (GlobalUpdater):
             self.Setting.Reset ()
-            self.Setting.Plugin.Context.Write ()
+            self.Setting.Plugin.Context.Write (onlyChanged=False)
             self.Read ()
 
     def ReorderKeyString (self, accel):
@@ -1128,7 +1128,7 @@ class ButtonSetting (EditableActionSetting):
         conflict = ButtonConflict (self.Setting, self.Setting.DefaultValue)
         if conflict.Resolve (GlobalUpdater):
             self.Setting.Reset ()
-            self.Setting.Plugin.Context.Write ()
+            self.Setting.Plugin.Context.Write (onlyChanged=False)
             self.Read ()
 
     def ReorderButtonString (self, old):
@@ -1315,7 +1315,7 @@ class EdgeSetting (EditableActionSetting):
         conflict = EdgeConflict (self.Setting, self.Setting.DefaultValue)
         if conflict.Resolve (GlobalUpdater):
             self.Setting.Reset ()
-            self.Setting.Plugin.Context.Write ()
+            self.Setting.Plugin.Context.Write (onlyChanged=False)
             self.Read ()
 
     def GetDialogText (self):
