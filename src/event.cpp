@@ -2037,11 +2037,11 @@ static const unsigned short _NET_WM_STATE_TOGGLE = 2;
 	    {
 		if (event->xclient.data.l[0] == IconicState)
 		{
+		    /* ICCCM 4.1.4: this is how a taskbar or a pager iconifies a
+		     * window, and the request is about a window that is usually not
+		     * the focused one. Requiring focus dropped those. */
 		    if (w->actions () & CompWindowActionMinimizeMask)
-		    {
-			if (w->focused ())
-			    w->minimize ();
-		    }
+			w->minimize ();
 		}
 		else if (event->xclient.data.l[0] == NormalState)
 		{
