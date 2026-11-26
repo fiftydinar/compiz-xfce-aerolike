@@ -60,36 +60,9 @@ bool
 PrivateCompositeScreen::setOption (const CompString  &name,
 				   CompOption::Value &value)
 {
-    unsigned int index;
-
-    bool rv = CompositeOptions::setOption (name, value);
-
-    if (!rv || !CompOption::findOption (getOptions (), name, &index))
-	return false;
-
-    switch (index)
-    {
-	case CompositeOptions::DetectRefreshRate:
-	    if (optionGetDetectRefreshRate ())
-	    {
-		detectRefreshRate ();
-		break;
-	    }
-	    /* Fall through when DetectRefreshRate is unchecked */
-
-	case CompositeOptions::RefreshRate:
-	    if (optionGetDetectRefreshRate ())
-		return false;
-
-	    redrawTime = 1000 / optionGetRefreshRate ();
-	    optimalRedrawTime = redrawTime;
-	    break;
-
-	default:
-	    break;
-    }
-
-    return rv;
+    /* Pacing is derived from the enabled outputs rather than from an option, so
+     * there is nothing to react to here. */
+    return CompositeOptions::setOption (name, value);
 }
 
 bool

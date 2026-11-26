@@ -52,6 +52,9 @@ template class WrapableInterface<CompositeScreen, CompositeScreenInterface>;
 namespace bt = compiz::composite::buffertracking;
 
 static const int FALLBACK_REFRESH_RATE = 60;   /* if all else fails */
+/* Below this, pacing gets so coarse that animation timing suffers; treat it
+ * as a bad reading rather than pacing at it. */
+static const int MIN_REFRESH_RATE = 24;
 
 CompWindow *lastDamagedWindow = 0;
 
@@ -250,6 +253,12 @@ CompositeScreen::CompositeScreen (CompScreen *s) :
 						 &priv->shapeError);
     priv->randrExtension = XRRQueryExtension (s->dpy (), &priv->randrEvent,
 					      &priv->randrError);
+
+    /* Ask for screen change notifications so that pacing follows a monitor
+     * hotplug or a refresh rate change. handleEvent already has the branch for
+     * these events, but nothing ever selected them, so it was dead. */
+    if (priv->randrExtension)
+	XRRSelectInput (s->dpy (), s->root (), RRScreenChangeNotifyMask);
 
     priv->makeOutputWindow ();
 
@@ -766,52 +775,83 @@ CompositeScreen::windowPaintOffset ()
     return priv->windowPaintOffset;
 }
 
+/*
+ * Fastest refresh rate among the outputs that are actually driving a mode, or
+ * FALLBACK_REFRESH_RATE when RandR cannot tell us.
+ *
+ * There is no single screen refresh rate to ask for any more. The phoenix X
+ * server keeps a framebuffer per monitor and shows what the compositor produced
+ * at each monitor's vblank, so pacing has to follow the enabled outputs: a
+ * 144Hz monitor next to a 60Hz one must not drag the whole desktop down to 60,
+ * and a 60Hz-only setup must not be paced at an arbitrary 60 while a 144Hz
+ * panel sits idle next to it.
+ *
+ * This is only the rate compiz *produces* frames at. It is not what keeps the
+ * output tear-free - the server does that for any rate - so pacing faster than
+ * a given monitor costs nothing in tearing terms.
+ */
+static int
+maxOutputRefreshRate (CompScreen *screen)
+{
+    Display	    *dpy = screen->dpy ();
+    XRRScreenResources *res;
+    int		    rate = 0;
+    unsigned int    i;
+
+    res = XRRGetScreenResourcesCurrent (dpy, screen->root ());
+    if (!res)
+	return FALLBACK_REFRESH_RATE;
+
+    for (i = 0; i < (unsigned int) res->ncrtc; ++i)
+    {
+	XRRCrtcInfo *crtc;
+	int	     j;
+
+	crtc = XRRGetCrtcInfo (dpy, res, res->crtcs[i]);
+	if (!crtc)
+	    continue;
+
+	/* A crtc with no mode, or with no output attached, is not scanning out */
+	if (crtc->mode != None && crtc->noutput > 0)
+	{
+	    for (j = 0; j < res->nmode; ++j)
+	    {
+		const XRRModeInfo *mode = &res->modes[j];
+		long long	   pixels;
+
+		if (mode->id != crtc->mode)
+		    continue;
+
+		pixels = (long long) mode->hTotal * (long long) mode->vTotal;
+		if (pixels > 0 && mode->dotClock > 0)
+		{
+		    int r = (int) (((long long) mode->dotClock +
+				     pixels / 2) / pixels);
+
+		    if (r > rate)
+			rate = r;
+		}
+		break;
+	    }
+	}
+
+	XRRFreeCrtcInfo (crtc);
+    }
+
+    XRRFreeScreenResources (res);
+
+    if (rate < MIN_REFRESH_RATE)
+	return FALLBACK_REFRESH_RATE;
+
+    return rate;
+}
+
 void
 PrivateCompositeScreen::detectRefreshRate ()
 {
-    const bool forceRefreshRate = (pHnd ? pHnd->requiredForcedRefreshRate () : false);
-    const bool detect = optionGetDetectRefreshRate () && !forceRefreshRate;
+    int rate = maxOutputRefreshRate (screen);
 
-    if (detect)
-    {
-	CompString        name;
-	CompOption::Value value;
-
-	value.set ((int) 0);
-
-	if (randrExtension)
-	{
-	    XRRScreenConfiguration *config;
-
-	    config  = XRRGetScreenInfo (screen->dpy (),
-					screen->root ());
-	    value.set ((int) XRRConfigCurrentRate (config));
-
-	    XRRFreeScreenConfigInfo (config);
-	}
-
-	if (value.i () == 0)
-	    value.set ((int) FALLBACK_REFRESH_RATE);
-
-	mOptions[CompositeOptions::DetectRefreshRate].value ().set (false);
-	screen->setOptionForPlugin ("composite", "refresh_rate", value);
-	mOptions[CompositeOptions::DetectRefreshRate].value ().set (true);
-	optimalRedrawTime = redrawTime = 1000 / value.i ();
-    }
-    else
-    {
-	if (forceRefreshRate && (optionGetRefreshRate () < FALLBACK_REFRESH_RATE))
-	{
-	    CompOption::Value value;
-
-	    value.set ((int) FALLBACK_REFRESH_RATE);
-
-	    screen->setOptionForPlugin ("composite", "refresh_rate", value);
-	}
-
-	redrawTime = 1000 / optionGetRefreshRate ();
-	optimalRedrawTime = redrawTime;
-    }
+    redrawTime = optimalRedrawTime = 1000 / rate;
 }
 
 CompositeFPSLimiterMode
