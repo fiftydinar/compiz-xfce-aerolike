@@ -796,6 +796,11 @@ public:
 
     bool initialized;
 
+    /* Whether a plugin is answering _NET_WM_FRAME_DRAWN. The atoms are only
+     * advertised while one is, because a toolkit that is promised them stops
+     * drawing on its own timer and waits for a message that would never come. */
+    bool frameTimingSupported;
+
 private:
     CompScreen* screen;
     compiz::private_screen::Extension xkbEvent;
@@ -1078,6 +1083,8 @@ class CompScreenImpl : public CompScreen,
 	bool updateDefaultIcon ();
 
 	void updateSupportedWmHints ();
+
+	void setFrameTimingSupported (bool supported);
 
 	unsigned int showingDesktopMask() const;
 	virtual bool grabsEmpty() const;

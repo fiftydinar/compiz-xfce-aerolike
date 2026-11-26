@@ -73,6 +73,11 @@ CompositePluginVTable::init ()
 	CompPrivate p;
 	p.uval = COMPIZ_COMPOSITE_ABI;
 	screen->storeValue ("composite_ABI", p);
+
+	/* This plugin is what answers the frame timing messages, so this is the
+	 * point from which they can be promised to clients. */
+	screen->setFrameTimingSupported (true);
+	screen->updateSupportedWmHints ();
 	return true;
     }
 
@@ -82,5 +87,8 @@ CompositePluginVTable::init ()
 void
 CompositePluginVTable::fini ()
 {
+    screen->setFrameTimingSupported (false);
+    screen->updateSupportedWmHints ();
+
     screen->eraseValue ("composite_ABI");
 }
