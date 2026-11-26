@@ -54,16 +54,83 @@ no patching step at all, and what CI tests is exactly what shipped.
 All of the above assumes `xorg-server-phoenix` (dec05eba's Xorg fork), which is
 what xfce-aerolike ships.
 
+Here compiz owns compositing: the server's own compositor is turned off with
+`Option "Compositing" "false"`, so compiz claims `_NET_WM_CM_S<screen>` and draws
+the desktop the way it always has. That split decides everything below.
+
+### What works
+
+- **Tear-free output at any rate.** The modesetting driver presents per CRTC,
+  timing each flip or region copy to land just before that monitor's vblank.
+  Nothing to configure; it is what the server does.
+- **Per-monitor framebuffers.** Each monitor has its own, instead of one buffer
+  for the whole desktop.
+- **Per-output frame pacing.** Compiz paces to the fastest output the pending
+  damage actually touches, so an update confined to a 60Hz monitor is produced at
+  60Hz rather than at a faster monitor's rate. See below.
+- **`_NET_WM_FRAME_DRAWN` and `_NET_WM_FRAME_TIMINGS`.** Compiz sends both, so
+  toolkit frame clocks in GTK and Qt applications run at the real refresh rate
+  instead of a ~60Hz fallback timer. Works regardless of who composites. See
+  below.
+- **All compiz effects.** Blur, wobbly, animations, expo, ring, cube, scale - the
+  whole reason for using compiz. Every one of them needs the composite plugin.
+- **Per-monitor DPI**, faster X11 rendering under load, and high-priority server
+  threads (`CAP_SYS_NICE`).
+- **`_NET_WM_WINDOW_OPACITY` and ARGB transparency**, via compiz rather than the
+  server.
+
+### What does not work
+
+All five below need the **server** to composite. Turning the server's compositor
+back on is not an option, because `decor`, `move`, `resize`, `place`, `snap`,
+`compiztoolbox` and `extrawm` all hard-require the composite plugin in their
+`<deps>` - compiz cannot act as a window manager without it. So these are
+mutually exclusive with the effects above, not merely unimplemented:
+
+- **HDR.** Compiz composites every window into the overlay window from
+  `XCompositeGetOverlayWindow`, which inherits the root window's depth: the
+  desktop is 8 bits per channel before it reaches the screen. Per-window tone
+  mapping only runs inside the server's own paint path. See below.
+- **Overlay planes**, for the same reason: they are used when the server scans
+  out its own composition.
+- **Direct scanout of application windows.** `compServerCanDefer()` requires the
+  server to be the only redirector, and compiz redirects toplevels manually.
+- **Variable refresh.** Enabling it is gated on that same scanout. See below.
+- **Server-side synchronized window resizing.** Compiz trades it for its own
+  effects, deliberately.
+
+Two server features are inert rather than broken, because compiz gets in the way
+of neither but triggers neither: `HiddenWindowFPS` throttling (a window is only
+treated as hidden while the server composited it) and `AllowTearing` (nothing is
+ever scanned out directly).
+
+### The two "vsync"s are different layers
+
+`tear-free` above and compiz's `sync_to_vblank` are not the same mechanism:
+
+- **Server side, always on.** The modesetting driver computes the target vblank
+  for each CRTC (`ms_tearfree_next_vblank()`) and times the flip or region copy
+  to it. This is what prevents tearing, whatever compiz does.
+- **Compiz side, `sync_to_vblank`, `false` in this build.** It only decides when
+  compiz hands a frame over and whether it blocks: `DoubleBuffer::VSYNC` makes
+  `glXSwapBuffers`/`vsync(Blit)` wait for vblank. It is a producer throttle.
+
+Keeping it off is deliberate and it interacts with pacing: with it on,
+`hasVSync()` returns true and `scheduleRepaint()` takes the `delay = 1` branch,
+deferring pacing to the blocking swap and bypassing the per-output table. The two
+are alternatives. Blocking in swap would also buy nothing, since presentation is
+already vblank-timed one layer down - it would only add latency.
+
 ### Frame pacing is per output
 
-The server keeps a framebuffer per monitor and shows what the compositor
-produced at each monitor's vblank, so a single screen refresh rate is
-meaningless. `detectRefreshRate()` therefore builds a table of enabled outputs
-with the rate their mode runs at, and `scheduleRepaint()` paces to the fastest
-output that the **pending damage** touches:
+The server keeps a framebuffer per monitor and shows what the compositor produced
+at each monitor's vblank, so a single screen refresh rate is meaningless.
+`detectRefreshRate()` builds a table of enabled outputs with the rate their mode
+runs at, and `scheduleRepaint()` paces to the fastest output that the **pending
+damage** touches:
 
 - damage confined to a 60Hz monitor is produced at 60Hz, not at 144Hz because
-  some other monitor is capable of it;
+  another monitor is capable of it;
 - damage spanning several outputs paces at the fastest of them, so a second
   monitor is never starved;
 - no damage at all schedules no frame, as before.
@@ -72,109 +139,60 @@ output that the **pending damage** touches:
 fastest output overall, because plugins read the latter as "the" frame interval
 for animation timing; neither changes with what happens to be damaged.
 
-The detected table is logged once per screen change at info level:
+The table is logged once per screen change at info level:
 
 ```
 compiz (composite): Outputs: 2560x1440@144Hz 1920x1080@60Hz (pacing cap 144Hz)
 ```
 
-so a mixed-refresh setup can be checked from the session log.
+### Why HDR cannot work
 
-### HDR cannot work while compiz composites
+Beyond the depth of the overlay window, per-window tone mapping lives in the
+server's paint path (`compServerPaintLayer()` calls `PaintHdr`), which does not
+run for a compositor other than itself. The fork says so directly: "With
+compositing turned off, HDR windows that a separate compositor such as picom
+draws are shown the way that compositor draws them." An HDR window is composited
+as if it were SDR and appears washed out.
 
-This is a property of the arrangement, not a missing feature:
+### Why variable refresh does not engage
 
-- compiz composites every window into the overlay window it gets from
-  `XCompositeGetOverlayWindow`, which inherits the root window's depth. The
-  whole desktop is 8 bits per channel before it reaches the screen.
-- Tone mapping per window lives in the server's own paint path
-  (`compServerPaintLayer()` calls `PaintHdr`), which does not run for a
-  compositor other than itself. The fork documents the consequence directly:
-  "With compositing turned off, HDR windows that a separate compositor such as
-  picom draws are shown the way that compositor draws them."
+VRR is enabled from the scanout decision, so with compiz compositing it never is:
 
-So an HDR window is composited as if it were SDR and appears washed out. HDR
-needs the server to composite, which means giving up the composite plugin - and
-`decor`, `move`, `resize`, `place`, `snap`, `compiztoolbox` and `extrawm` all
-hard-require it in their `<deps>`, so compiz cannot act as a window manager
-without it. HDR and this desktop's effects are mutually exclusive.
-
-What the server still gives with compiz compositing: per-monitor framebuffers,
-per-output rates (above), tear-free presentation at any rate, faster X11
-rendering and high-priority server threads.
-
-### The two "vsync"s are different layers
-
-`tear-free at any rate` above and compiz's `sync_to_vblank` are not the same
-mechanism, which is worth keeping straight:
-
-- **Server side, always on.** The modesetting driver presents per CRTC: it
-  computes the target vblank (`ms_tearfree_next_vblank()`) and times the flip or
-  the region copy to land just before it. This is what makes the output
-  tear-free, and it happens whatever compiz does.
-- **Compiz side, `sync_to_vblank`, currently `false`.** This only decides when
-  compiz hands a frame over and whether it blocks waiting for the display:
-  `DoubleBuffer::VSYNC` makes `glXSwapBuffers`/`vsync(Blit)` wait for vblank.
-  It is a producer throttle, not the thing preventing tearing.
-
-Keeping compiz's off is deliberate, and it also interacts with pacing: with it
-on, `hasVSync()` returns true and `scheduleRepaint()` takes the
-`delay = 1` branch, which repaints at the first opportunity and defers pacing to
-the blocking swap. The per-output pacing described above only takes effect in
-the other branch, so the two pacing strategies are alternatives - turning
-`sync_to_vblank` back on would bypass the per-output table. Blocking in swap
-would also buy nothing, because the frame is already presented at vblank one
-layer down; it would only add latency.
-
-### Variable refresh does not work here
-
-VRR is gated on a direct scanout:
-
-- `ms_compositor_update_output_mode()` enables it with
+- `ms_compositor_update_output_mode()` calls
   `drmmode_crtc_set_vrr(crtc, window && ms_compositor_window_has_variable_refresh(...))`,
   where `window` comes from `CompositeServerCoveredScanoutWindow()`;
-- that returns NULL when the compositor is not the server, so VRR is set to
+- that returns NULL when the server is not the compositor, so VRR is set to
   disabled on every update;
 - the Present-flip path has the same shape: it checks `_VARIABLE_REFRESH` on
   `ms->flip_window`, which is compiz's output window, not the application's.
 
-It also needs `Option "VariableRefresh" "true"` in the Device section - off by
-default - and a window carrying `_VARIABLE_REFRESH`. Adding the option without
-compositing changes nothing, and enabling VRR while compiz paces at a fixed rate
-would pin the panel to that rate rather than adapting to the application.
-
-So VRR joins overlay planes, direct scanout and HDR: available only when the
-server composites. What cannot be recovered from the compiz side are those four.
-
-The remaining gap that is *not* in that group has been closed above:
-`_NET_WM_FRAME_DRAWN`/`_NET_WM_FRAME_TIMINGS` are plain client messages, so
-compiz sends them itself and toolkit frame clocks run at the real refresh rate.
+It additionally needs `Option "VariableRefresh" "true"` in the Device section,
+off by default, and a window carrying `_VARIABLE_REFRESH`. Adding the option
+alone changes nothing, and VRR under a fixed-rate pacer would pin the panel to
+that rate instead of adapting to the application.
 
 ### GTK/Qt frame timing
 
 A compositor drives a toolkit's frame clock with `_NET_WM_FRAME_DRAWN` and
-`_NET_WM_FRAME_TIMINGS`; without them GTK falls back to its own ~60Hz timer and
-animations inside applications do not use the refresh rate of a fast monitor,
-however fast frames are produced.
+`_NET_WM_FRAME_TIMINGS`; without them GTK falls back to its own ~60Hz timer, so
+animations inside applications do not use a fast monitor no matter how fast
+frames are produced.
 
-Compiz sends both now. It advertises them in `_NET_SUPPORTED` and answers each
+Compiz sends both. They are advertised in `_NET_SUPPORTED` and sent to each
 window after a frame containing it has been drawn, reusing the
-`_NET_WM_SYNC_REQUEST_COUNTER` it already monitors for resize synchronization:
+`_NET_WM_SYNC_REQUEST_COUNTER` already monitored for resize synchronization:
 
-- the counter value the client set is echoed back in `data[0..1]`, so the client
+- the counter value the client set is echoed in `data[0..1]`, so the client
   matches the message to its own frame;
-- `data[2..3]` of `_NET_WM_FRAME_DRAWN` is the time the frame was drawn, in
-  monotonic microseconds - the same clock and unit as the server's own messages
-  and as `g_get_monotonic_time()`, so no conversion is needed;
+- `data[2..3]` of `_NET_WM_FRAME_DRAWN` is the draw time in monotonic
+  microseconds - the same clock and unit as the server's messages and as
+  `g_get_monotonic_time()`, so no conversion is needed;
 - `_NET_WM_FRAME_TIMINGS` reports `data[3]` as the interval the frame was paced
-  to (from the per-output table above) and `data[2]`, the presentation offset,
-  as 0: the vblank phase is not knowable from a client, so it is not invented.
+  to, and `data[2]`, the presentation offset, as 0: the vblank phase is not
+  knowable from a client, so it is not invented.
 
-This works whatever composites, unlike overlay planes, direct scanout and HDR,
-which need the server to composite and are therefore unavailable here (see
-below). It round-trips nothing: two ClientMessages per frame per window that
-asked for one, sent from the paint call, with the alarm the resize path already
-arms on map.
+Cost is two ClientMessages per frame per interested window, sent from the paint
+call, with no round trips.
 
 ## Building
 
