@@ -21,7 +21,7 @@
 				<option name="next_key" type="key">
 					<_short>Next Window Key</_short>
 					<_long>Reveals the ring and selects the next window on the current workspace.</_long>
-					<default>&lt;Super&gt;Tab</default>
+					<default>&lt;Alt&gt;Tab</default>
 				</option>
 				<option name="next_button" type="button">
 					<_short>Next Window Button</_short>
@@ -30,7 +30,7 @@
 				<option name="prev_key" type="key">
 					<_short>Previous Window Key</_short>
 					<_long>Reveals the ring and selects the previous window on the current workspace.</_long>
-					<default>&lt;Super&gt;&lt;Shift&gt;Tab</default>
+					<default>&lt;Shift&gt;&lt;Alt&gt;Tab</default>
 				</option>
 				<option name="prev_button" type="button">
 					<_short>Previous Window Button</_short>
@@ -39,7 +39,7 @@
 				<option name="next_all_key" type="key">
 					<_short>Next Window Key (All Workspaces)</_short>
 					<_long>Reveals the ring and selects the next window, taking into account all workspaces.</_long>
-					<default>&lt;Super&gt;&lt;Alt&gt;Tab</default>
+					<default>&lt;Control&gt;&lt;Alt&gt;Tab</default>
 				</option>
 				<option name="next_all_button" type="button">
 					<_short>Next Window Button (All Workspaces)</_short>
@@ -48,7 +48,7 @@
 				<option name="prev_all_key" type="key">
 					<_short>Previous Window Key (All Workspaces)</_short>
 					<_long>Reveals the ring and selects the previous window, taking into account all workspaces.</_long>
-					<default>&lt;Super&gt;&lt;Shift&gt;&lt;Alt&gt;Tab</default>
+					<default>&lt;Shift&gt;&lt;Control&gt;&lt;Alt&gt;Tab</default>
 				</option>
 				<option name="prev_all_button" type="button">
 					<_short>Previous Window Button (All Workspaces)</_short>
