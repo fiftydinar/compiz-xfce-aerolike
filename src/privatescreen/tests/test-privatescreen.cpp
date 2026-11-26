@@ -132,6 +132,7 @@ public:
     MOCK_METHOD1(removeFileWatch, void (CompFileWatchHandle handle));
     MOCK_CONST_METHOD0(getFileWatches, const CompFileWatchList& ());
     MOCK_METHOD0(updateSupportedWmHints, void ());
+    MOCK_METHOD1(setFrameTimingSupported, void (bool));
     MOCK_METHOD0(destroyedWindows, CompWindowList & ());
     MOCK_CONST_METHOD0(region, const CompRegion & ());
     MOCK_METHOD0(hasOverlappingOutputs, bool ());
