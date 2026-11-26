@@ -1463,6 +1463,11 @@ CompWindow::map ()
 	        screen->incrementOpaqueDesktopWindowCount ();
 	}
 
+	/* Frame timing is independent of resize synchronization: the counter it
+	 * watches exists from the moment the client sets the property, and GTK
+	 * sets it before the window is mapped. */
+	priv->initializeFrameCounter ();
+
 	if (priv->protocols & CompWindowProtocolSyncRequestMask)
 	{
 	    sendSyncRequest ();
@@ -1819,13 +1824,125 @@ PrivateWindow::initializeSyncCounter ()
 				      &values);
 
 	if (CompScreenImpl::checkForError (screen->dpy ()))
-	    return true;
+	{
+	    if (syncAlarm)
+		XSyncDestroyAlarm (screen->dpy (), syncAlarm);
 
-	XSyncDestroyAlarm (screen->dpy (), syncAlarm);
-	syncAlarm = None;
+	    syncAlarm = None;
+	    return false;
+	}
+
+	return true;
     }
     else if (result == Success && data)
 	XFree (data);
+
+    return false;
+}
+
+/* Watches the second counter of _NET_WM_SYNC_REQUEST_COUNTER, the one the
+ * client advances while it draws frames.
+ *
+ * The first counter cannot be used for this: compiz only ever writes it when it
+ * acknowledges a resize, so it says nothing about the frames in between, and a
+ * client matches the frame timing messages against the value it put in the
+ * second one. */
+bool
+PrivateWindow::initializeFrameCounter ()
+{
+    Atom          actual;
+    int           format;
+    unsigned long n, left;
+    unsigned char *data = 0;
+    XSyncCounter  counter = 0;
+
+    int result = XGetWindowProperty (screen->dpy (), id,
+				     Atoms::wmSyncRequestCounter,
+				     0L, 2L, false, XA_CARDINAL, &actual, &format,
+				     &n, &left, &data);
+
+    if (result == Success && n && data && actual == XA_CARDINAL && format == 32)
+    {
+	unsigned long *counters = (unsigned long *) data;
+
+	/* A single counter means the client does not take frame timing
+	 * messages. */
+	if (n >= 2)
+	    counter = (XSyncCounter) counters[1];
+    }
+
+    if (result == Success && data)
+	XFree (data);
+
+    /* Called again when the property changes, so nothing is assumed about the
+     * counter staying the same. */
+    if (counter == frameSyncCounter && frameSyncAlarm != None)
+	return true;
+
+    if (frameSyncAlarm != None)
+    {
+	XSyncDestroyAlarm (screen->dpy (), frameSyncAlarm);
+	frameSyncAlarm = None;
+    }
+
+    frameSyncCounter = counter;
+    frameReady        = false;
+
+    if (!frameSyncCounter)
+	return false;
+
+    XSyncAlarmAttributes values;
+
+    memset (&values, 0, sizeof (values));
+
+    values.events          = true;
+    values.trigger.counter = frameSyncCounter;
+
+    /* Counters only grow, so one starting point is enough: the alarm advances
+     * its own trigger after each notification, and it reports the value the
+     * counter holds rather than the value it waited for, so a client that skips
+     * ahead still produces an event. */
+    XSyncIntToValue (&values.trigger.wait_value, 1);
+
+    values.trigger.value_type = XSyncAbsolute;
+    values.trigger.test_type  = XSyncPositiveComparison;
+
+    XSyncIntToValue (&values.delta, 1);
+
+    CompScreenImpl::checkForError (screen->dpy ());
+
+    frameSyncAlarm = XSyncCreateAlarm (screen->dpy (),
+				       XSyncCACounter   |
+				       XSyncCAValue     |
+				       XSyncCAValueType |
+				       XSyncCATestType  |
+				       XSyncCADelta     |
+				       XSyncCAEvents,
+				       &values);
+
+    if (frameSyncAlarm == None || CompScreenImpl::checkForError (screen->dpy ()))
+    {
+	if (frameSyncAlarm != None)
+	    XSyncDestroyAlarm (screen->dpy (), frameSyncAlarm);
+
+	frameSyncAlarm = None;
+	frameSyncCounter = 0;
+	return false;
+    }
+
+    return true;
+}
+
+bool
+PrivateWindow::handleFrameSyncAlarm (XSyncValue value)
+{
+    frameCounterValue = value;
+
+    /* A client marks the start of a frame with an odd value and its end with an
+     * even one. Only a finished frame is a serial it registered, so the odd
+     * values are ignored rather than answered twice. */
+    if (!(XSyncValueLow32 (value) & 1))
+	frameReady = true;
 
     return false;
 }
@@ -6198,14 +6315,13 @@ CompWindow::syncAlarm () const
 bool
 CompWindow::takeFrameReady (uint64_t &counterValue)
 {
-    XSyncValue v = priv->frameCounterValue;
-
     if (!priv->frameReady)
 	return false;
 
     priv->frameReady = false;
 
-    counterValue = ((uint64_t) XSyncValueHigh32 (v) << 32) | XSyncValueLow32 (v);
+    counterValue = ((uint64_t) XSyncValueHigh32 (priv->frameCounterValue) << 32) |
+		   (uint32_t) XSyncValueLow32 (priv->frameCounterValue);
     return true;
 }
 
@@ -6628,7 +6744,10 @@ PrivateWindow::PrivateWindow () :
     syncWaitTimer (),
 
     syncWait (false),
+    frameSyncCounter (0),
+    frameSyncAlarm (None),
     frameReady (false),
+    frameCounterValue (),
     closeRequests (false),
     lastCloseRequestTime (0),
 
@@ -6661,6 +6780,9 @@ PrivateWindow::~PrivateWindow ()
 {
      if (syncAlarm)
 	XSyncDestroyAlarm (screen->dpy (), syncAlarm);
+
+     if (frameSyncAlarm)
+	XSyncDestroyAlarm (screen->dpy (), frameSyncAlarm);
 
     syncWaitTimer.stop ();
 

@@ -1747,6 +1747,14 @@ CompScreenImpl::_handleEvent (XEvent *event)
 		w->changeState (state);
 	    }
 	}
+	else if (event->xproperty.atom == Atoms::wmSyncRequestCounter)
+	{
+	    /* The client registered or replaced its sync counters. Frame timing
+	     * can only be watched once the extended one is there. */
+	    w = findWindow (event->xproperty.window);
+	    if (w)
+		w->priv->initializeFrameCounter ();
+	}
 	else if (event->xproperty.atom == XA_WM_NORMAL_HINTS)
 	{
 	    w = findWindow (event->xproperty.window);
@@ -2470,13 +2478,16 @@ static const unsigned short _NET_WM_STATE_TOGGLE = 2;
 		CompWindow* const w(*i);
 		if (w->priv->syncAlarm == sa->alarm)
 		{
-		    /* The client has drawn the frame it was asked for. Remember the
-		     * counter value it set: it has to be echoed back with the frame
-		     * timing messages so the client can match them to its own frame. */
-		    w->priv->frameCounterValue = sa->counter_value;
-		    w->priv->frameReady        = true;
-
 		    w->priv->handleSyncAlarm ();
+		    break;
+		}
+
+		if (w->priv->frameSyncAlarm == sa->alarm)
+		{
+		    /* The client finished drawing a frame. The counter value it
+		     * reached is echoed back with the frame timing messages so it
+		     * can match them to its own frame. */
+		    w->priv->handleFrameSyncAlarm (sa->counter_value);
 		    break;
 		}
 	    }

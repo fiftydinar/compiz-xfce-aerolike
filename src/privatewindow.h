@@ -163,6 +163,8 @@ class PrivateWindow :
 
 	bool initializeSyncCounter ();
 
+	bool initializeFrameCounter ();
+
 	bool isGroupTransient (Window clientLeader);
 
 	bool isInvisible() const;
@@ -288,6 +290,7 @@ class PrivateWindow :
 	void updateRegion ();
 
 	bool handleSyncAlarm ();
+	bool handleFrameSyncAlarm (XSyncValue value);
 
 	void move (int dx, int dy, bool sync);
 	bool resize (int dx, int dy, int dwidth, int dheight, int dborder);
@@ -453,8 +456,18 @@ class PrivateWindow :
 	bool                 syncWait;
 	CompWindow::Geometry syncGeometry;
 
+	/* Clients that understand _NET_WM_FRAME_DRAWN register a second counter in
+	 * _NET_WM_SYNC_REQUEST_COUNTER, next to the one used for resize
+	 * synchronization. The first counter only advances when a resize was
+	 * acknowledged; the second is advanced by the client for every frame it
+	 * draws, and the value it ends up with is the serial the frame timing
+	 * messages have to be answered with. 0 when the client registered a single
+	 * counter. */
+	XSyncCounter  frameSyncCounter;
+	XSyncAlarm    frameSyncAlarm;
+
 	/* Set when the client signals it finished drawing a frame for this window
-	 * (see handleSyncAlarm). Cleared once the compositor has drawn it and
+	 * (see handleFrameSyncAlarm). Cleared once the compositor has drawn it and
 	 * answered with _NET_WM_FRAME_DRAWN. */
 	bool                 frameReady;
 	XSyncValue           frameCounterValue;
