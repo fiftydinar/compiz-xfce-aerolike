@@ -41,15 +41,20 @@
 #include "composite_options.h"
 
 /*
- * One output that is actually scanning out a mode, with the rate that mode
+ * One output that is actually scanning out a mode, with the interval that mode
  * runs at. Compiz has a single virtual framebuffer, but the X server it runs on
- * gives every monitor its own, so the rate to produce frames at depends on
- * which outputs need the next frame - see rateForPendingDamage().
+ * gives every monitor its own, so the interval to produce frames at depends on
+ * which outputs need the next frame - see intervalForPendingDamage().
  */
 struct OutputRate
 {
-    CompRect geometry;
-    int      rate;
+    CompRect     geometry;
+    int          rate;
+    /* Exact frame interval from the pixel clock. The rate above is rounded to
+     * whole hertz, which is what the log line and redrawTime use, but pacing on
+     * a rounded value drifts: 1000 / 60 is 16ms against a 16.667ms frame, and
+     * 1000 / 144 is 6ms against 6.944ms. */
+    unsigned int intervalUs;
 };
 
 extern CompPlugin::VTable *compositeVTable;
@@ -85,9 +90,9 @@ class PrivateCompositeScreen :
 
 	void detectRefreshRate ();
 
-	/* Fastest rate among the outputs the pending damage touches, or 0 when
-	 * no output does. */
-	int rateForPendingDamage () const;
+	/* Shortest interval among the outputs the pending damage touches, in
+	 * microseconds, or 0 when no output does. */
+	unsigned int intervalForPendingDamage () const;
 
 	void scheduleRepaint ();
 
@@ -128,8 +133,16 @@ class PrivateCompositeScreen :
 	int            redrawTime;
 	int            optimalRedrawTime;
 
-	/* Enabled outputs and their rates, refreshed on every RandR screen change */
+	/* Enabled outputs and their intervals, refreshed on every RandR screen
+	 * change. */
 	std::vector<OutputRate> outputRates;
+
+	/* Shortest interval of any enabled output, and the interval the queued frame
+	 * was scheduled for. The latter is what the frame timing messages report,
+	 * because it is the only rate the frame was actually paced to. */
+	unsigned int           fastestIntervalUs;
+	unsigned int           pacedIntervalUs;
+	unsigned int           scheduledIntervalUs;
 
 	/* Damage accumulated since the last repaint, reset when a frame starts.
 	 * scheduleRepaint() paces to the fastest output this touches, so an update
