@@ -313,6 +313,8 @@ PrivateCompositeScreen::PrivateCompositeScreen (CompositeScreen *cs) :
     outputShapeChanged (false),
     redrawTime (1000 / FALLBACK_REFRESH_RATE),
     optimalRedrawTime (1000 / FALLBACK_REFRESH_RATE),
+    outputRates (),
+    pendingDamage (),
     scheduled (false),
     painting (false),
     reschedule (false),
@@ -540,6 +542,8 @@ CompositeScreen::damageScreen ()
     priv->damageMask |= COMPOSITE_SCREEN_DAMAGE_ALL_MASK;
     priv->damageMask &= ~COMPOSITE_SCREEN_DAMAGE_REGION_MASK;
 
+    priv->pendingDamage = CompRegion (0, 0, screen->width (), screen->height ());
+
     if (priv->damageRequiresRepaintReschedule)
 	priv->scheduleRepaint ();
 
@@ -574,6 +578,7 @@ CompositeScreen::damageRegion (const CompRegion &region)
 
     const CompRegion *currentDamage = priv->damageTrackedBuffer (region);
     priv->damageMask |= COMPOSITE_SCREEN_DAMAGE_REGION_MASK;
+    priv->pendingDamage += region;
 
     /* If the number of damage rectangles grows two much between repaints,
      * we have a lot of overhead just for doing the damage tracking -
@@ -776,31 +781,26 @@ CompositeScreen::windowPaintOffset ()
 }
 
 /*
- * Fastest refresh rate among the outputs that are actually driving a mode, or
- * FALLBACK_REFRESH_RATE when RandR cannot tell us.
+ * Fill out with every output that is actually scanning out a mode, and return
+ * the fastest rate among them.
  *
- * There is no single screen refresh rate to ask for any more. The phoenix X
- * server keeps a framebuffer per monitor and shows what the compositor produced
- * at each monitor's vblank, so pacing has to follow the enabled outputs: a
- * 144Hz monitor next to a 60Hz one must not drag the whole desktop down to 60,
- * and a 60Hz-only setup must not be paced at an arbitrary 60 while a 144Hz
- * panel sits idle next to it.
- *
- * This is only the rate compiz *produces* frames at. It is not what keeps the
- * output tear-free - the server does that for any rate - so pacing faster than
- * a given monitor costs nothing in tearing terms.
+ * There is no single screen refresh rate to ask for. The phoenix X server keeps
+ * a framebuffer per monitor and shows what the compositor produced at each
+ * monitor's vblank, so a screen-wide rate says nothing useful: querying it with
+ * XRRGetScreenInfo/XRRConfigCurrentRate reports whichever output RandR happens
+ * to pick.
  */
 static int
-maxOutputRefreshRate (CompScreen *screen)
+outputsFromRandr (CompScreen *screen, std::vector<OutputRate> &out)
 {
-    Display	    *dpy = screen->dpy ();
+    Display	       *dpy = screen->dpy ();
     XRRScreenResources *res;
-    int		    rate = 0;
-    unsigned int    i;
+    int		       maxRate = 0;
+    unsigned int       i;
 
     res = XRRGetScreenResourcesCurrent (dpy, screen->root ());
     if (!res)
-	return FALLBACK_REFRESH_RATE;
+	return 0;
 
     for (i = 0; i < (unsigned int) res->ncrtc; ++i)
     {
@@ -812,7 +812,8 @@ maxOutputRefreshRate (CompScreen *screen)
 	    continue;
 
 	/* A crtc with no mode, or with no output attached, is not scanning out */
-	if (crtc->mode != None && crtc->noutput > 0)
+	if (crtc->mode != None && crtc->noutput > 0 &&
+	    crtc->width > 0 && crtc->height > 0)
 	{
 	    for (j = 0; j < res->nmode; ++j)
 	    {
@@ -825,11 +826,17 @@ maxOutputRefreshRate (CompScreen *screen)
 		pixels = (long long) mode->hTotal * (long long) mode->vTotal;
 		if (pixels > 0 && mode->dotClock > 0)
 		{
+		    OutputRate o;
 		    int r = (int) (((long long) mode->dotClock +
 				     pixels / 2) / pixels);
 
-		    if (r > rate)
-			rate = r;
+		    o.geometry = CompRect (crtc->x, crtc->y,
+					   crtc->width, crtc->height);
+		    o.rate = r;
+		    out.push_back (o);
+
+		    if (r > maxRate)
+			maxRate = r;
 		}
 		break;
 	    }
@@ -840,18 +847,74 @@ maxOutputRefreshRate (CompScreen *screen)
 
     XRRFreeScreenResources (res);
 
-    if (rate < MIN_REFRESH_RATE)
-	return FALLBACK_REFRESH_RATE;
-
-    return rate;
+    return maxRate;
 }
 
 void
 PrivateCompositeScreen::detectRefreshRate ()
 {
-    int rate = maxOutputRefreshRate (screen);
+    int rate;
+
+    outputRates.clear ();
+    rate = outputsFromRandr (screen, outputRates);
+
+    if (rate < MIN_REFRESH_RATE)
+    {
+	/* Nothing usable from RandR: treat the screen as one output at the
+	 * fallback rate so pacing still has something to go on. */
+	OutputRate o;
+
+	o.geometry = CompRect (0, 0, screen->width (), screen->height ());
+	o.rate = FALLBACK_REFRESH_RATE;
+	outputRates.push_back (o);
+	rate = FALLBACK_REFRESH_RATE;
+    }
 
     redrawTime = optimalRedrawTime = 1000 / rate;
+
+    /* One line per screen change, so a mixed-refresh setup can be checked from
+     * the session log instead of guessed at. */
+    if (!outputRates.empty ())
+    {
+	CompString rates;
+
+	foreach (const OutputRate &o, outputRates)
+	{
+	    char buf[64];
+
+	    snprintf (buf, sizeof (buf), "%s%dx%d@%dHz", rates.empty () ? "" : " ",
+		      o.geometry.width (), o.geometry.height (), o.rate);
+	    rates += buf;
+	}
+
+	compLogMessage ("composite", CompLogLevelInfo,
+			"Outputs: %s (pacing cap %dHz)", rates.c_str (), rate);
+    }
+}
+
+int
+PrivateCompositeScreen::rateForPendingDamage () const
+{
+    int rate = 0;
+
+    if (pendingDamage.isEmpty ())
+	return 0;
+
+    /*
+     * Fastest output the damage touches. A window animating on a 60Hz monitor
+     * therefore gets a new frame at 60Hz rather than at the rate of some other
+     * monitor that is not changing - the compositor produces frames only as
+     * often as the outputs that need them can show them. Damage that spans
+     * several outputs still paces at the fastest of them, so a second monitor
+     * is never starved.
+     */
+    foreach (const OutputRate &o, outputRates)
+    {
+	if (o.rate > rate && pendingDamage.intersects (o.geometry))
+	    rate = o.rate;
+    }
+
+    return rate;
 }
 
 CompositeFPSLimiterMode
@@ -888,13 +951,17 @@ PrivateCompositeScreen::scheduleRepaint ()
     else
     {
 	struct timeval now;
+	int        rate = rateForPendingDamage ();
+	int        interval = rate > 0 ? 1000 / rate : optimalRedrawTime;
+	int        elapsed;
+
 	gettimeofday (&now, 0);
-	int elapsed = compiz::core::timer::timeval_diff (&now, &lastRedraw);
+	elapsed = compiz::core::timer::timeval_diff (&now, &lastRedraw);
 
 	if (elapsed < 0)
 	    elapsed = 0;
 
- 	delay = elapsed < optimalRedrawTime ? optimalRedrawTime - elapsed : 1;
+	delay = elapsed < interval ? interval - elapsed : 1;
     }
 
     paintTimer.start
@@ -1024,6 +1091,11 @@ CompositeScreen::handlePaintTimeout ()
 	    outputs.push_back (&screen->fullscreenOutput ());
 
 	priv->currentlyTrackingDamage = DamageForCurrentFrame;
+
+	/* Everything accumulated so far is in this frame; what arrives from
+	 * here on belongs to the next one and decides how soon that has to
+	 * be produced. */
+	priv->pendingDamage = CompRegion ();
 
 	/* All new damage goes on the next frame */
 	priv->ageingBuffers.incrementAges ();

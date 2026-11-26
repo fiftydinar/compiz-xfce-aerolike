@@ -34,10 +34,23 @@
 #include <composite/composite.h>
 #include <core/atoms.h>
 #include <map>
+#include <vector>
 
 #include "pixmapbinding.h"
 #include "backbuffertracking.h"
 #include "composite_options.h"
+
+/*
+ * One output that is actually scanning out a mode, with the rate that mode
+ * runs at. Compiz has a single virtual framebuffer, but the X server it runs on
+ * gives every monitor its own, so the rate to produce frames at depends on
+ * which outputs need the next frame - see rateForPendingDamage().
+ */
+struct OutputRate
+{
+    CompRect geometry;
+    int      rate;
+};
 
 extern CompPlugin::VTable *compositeVTable;
 
@@ -71,6 +84,10 @@ class PrivateCompositeScreen :
 	void handleExposeEvent (XExposeEvent *event);
 
 	void detectRefreshRate ();
+
+	/* Fastest rate among the outputs the pending damage touches, or 0 when
+	 * no output does. */
+	int rateForPendingDamage () const;
 
 	void scheduleRepaint ();
 
@@ -110,6 +127,18 @@ class PrivateCompositeScreen :
 	struct timeval lastRedraw;
 	int            redrawTime;
 	int            optimalRedrawTime;
+
+	/* Enabled outputs and their rates, refreshed on every RandR screen change */
+	std::vector<OutputRate> outputRates;
+
+	/* Damage accumulated since the last repaint, reset when a frame starts.
+	 * scheduleRepaint() paces to the fastest output this touches, so an update
+	 * confined to a 60Hz monitor is produced at 60Hz instead of at the rate of
+	 * some other monitor that is not changing. optimalRedrawTime stays at the
+	 * fastest output overall, independent of what is damaged, because plugins
+	 * read it as "the" frame interval for animation timing. */
+	CompRegion pendingDamage;
+
 	bool           scheduled, painting, reschedule;
 	bool           damageRequiresRepaintReschedule;
 
