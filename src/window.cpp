@@ -1679,7 +1679,36 @@ PrivateWindow::resize (const CompWindow::Geometry &gm)
 	move (gm.x () - priv->geometry.x (),
 	      gm.y () - priv->geometry.y (), true);
 
+    autoDetectFullscreen ();
+
     return true;
+}
+
+void
+PrivateWindow::autoDetectFullscreen ()
+{
+    if (priv->attrib.override_redirect || !priv->managed)
+	return;
+
+    if (!(priv->wmType & (CompWindowTypeNormalMask | CompWindowTypeUnknownMask)))
+	return;
+
+    if (priv->state & CompWindowStateFullscreenMask)
+	return;
+
+    CompOutput &fsOutput = screen->fullscreenOutput ();
+    int fsX2 = fsOutput.x () + fsOutput.width ();
+    int fsY2 = fsOutput.y () + fsOutput.height ();
+    int wX2  = priv->frameGeometry.x () + priv->frameGeometry.width ();
+    int wY2  = priv->frameGeometry.y () + priv->frameGeometry.height ();
+
+    if (priv->frameGeometry.x () <= fsOutput.x () &&
+	priv->frameGeometry.y () <= fsOutput.y () &&
+	wX2 >= fsX2 && wY2 >= fsY2)
+    {
+	window->changeState (priv->state | CompWindowStateFullscreenMask);
+	window->updateAttributes (CompStackingUpdateModeNormal);
+    }
 }
 
 bool

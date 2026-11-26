@@ -294,6 +294,8 @@ class PrivateWindow :
 	bool resize (const CompWindow::Geometry &g);
 	bool resize (const XWindowAttributes &attrib);
 
+	void autoDetectFullscreen ();
+
 	void configure (XConfigureEvent *ce);
 
 	void configureFrame (XConfigureEvent *ce);
