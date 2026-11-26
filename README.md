@@ -101,10 +101,54 @@ without it. HDR and this desktop's effects are mutually exclusive.
 
 What the server still gives with compiz compositing: per-monitor framebuffers,
 per-output rates (above), tear-free presentation at any rate, faster X11
-rendering and high-priority server threads. What it cannot give: direct scanout
-of application windows (`compServerCanDefer()` requires the server to be the
-only redirector), overlay planes, `_NET_WM_FRAME_DRAWN`/`_NET_WM_FRAME_TIMINGS`
-and per-window HDR.
+rendering and high-priority server threads.
+
+### The two "vsync"s are different layers
+
+`tear-free at any rate` above and compiz's `sync_to_vblank` are not the same
+mechanism, which is worth keeping straight:
+
+- **Server side, always on.** The modesetting driver presents per CRTC: it
+  computes the target vblank (`ms_tearfree_next_vblank()`) and times the flip or
+  the region copy to land just before it. This is what makes the output
+  tear-free, and it happens whatever compiz does.
+- **Compiz side, `sync_to_vblank`, currently `false`.** This only decides when
+  compiz hands a frame over and whether it blocks waiting for the display:
+  `DoubleBuffer::VSYNC` makes `glXSwapBuffers`/`vsync(Blit)` wait for vblank.
+  It is a producer throttle, not the thing preventing tearing.
+
+Keeping compiz's off is deliberate, and it also interacts with pacing: with it
+on, `hasVSync()` returns true and `scheduleRepaint()` takes the
+`delay = 1` branch, which repaints at the first opportunity and defers pacing to
+the blocking swap. The per-output pacing described above only takes effect in
+the other branch, so the two pacing strategies are alternatives - turning
+`sync_to_vblank` back on would bypass the per-output table. Blocking in swap
+would also buy nothing, because the frame is already presented at vblank one
+layer down; it would only add latency.
+
+### Variable refresh does not work here
+
+VRR is gated on a direct scanout:
+
+- `ms_compositor_update_output_mode()` enables it with
+  `drmmode_crtc_set_vrr(crtc, window && ms_compositor_window_has_variable_refresh(...))`,
+  where `window` comes from `CompositeServerCoveredScanoutWindow()`;
+- that returns NULL when the compositor is not the server, so VRR is set to
+  disabled on every update;
+- the Present-flip path has the same shape: it checks `_VARIABLE_REFRESH` on
+  `ms->flip_window`, which is compiz's output window, not the application's.
+
+It also needs `Option "VariableRefresh" "true"` in the Device section - off by
+default - and a window carrying `_VARIABLE_REFRESH`. Adding the option without
+compositing changes nothing, and enabling VRR while compiz paces at a fixed rate
+would pin the panel to that rate rather than adapting to the application.
+
+So VRR joins overlay planes, direct scanout and HDR: available only when the
+server composites. What cannot be recovered from the compiz side are those four.
+
+The remaining gap that is *not* in that group has been closed above:
+`_NET_WM_FRAME_DRAWN`/`_NET_WM_FRAME_TIMINGS` are plain client messages, so
+compiz sends them itself and toolkit frame clocks run at the real refresh rate.
 
 ### GTK/Qt frame timing
 
