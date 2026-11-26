@@ -6195,6 +6195,20 @@ CompWindow::syncAlarm () const
     return priv->syncAlarm;
 }
 
+bool
+CompWindow::takeFrameReady (uint64_t &counterValue)
+{
+    XSyncValue v = priv->frameCounterValue;
+
+    if (!priv->frameReady)
+	return false;
+
+    priv->frameReady = false;
+
+    counterValue = ((uint64_t) XSyncValueHigh32 (v) << 32) | XSyncValueLow32 (v);
+    return true;
+}
+
 CompWindow *
 PrivateWindow::createCompWindow (Window aboveId, Window aboveServerId, XWindowAttributes &wa, Window id)
 {

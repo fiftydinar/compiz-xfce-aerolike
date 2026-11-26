@@ -28,6 +28,8 @@
 #ifndef _COMPWINDOW_H
 #define _COMPWINDOW_H
 
+#include <stdint.h>
+
 #include <boost/function.hpp>
 
 #include <X11/Xlib-xcb.h>
@@ -424,6 +426,16 @@ class CompWindow :
 	void sendSyncRequest ();
 
 	XSyncAlarm syncAlarm () const;
+
+	/**
+	 * Consume the pending frame notification for this window.
+	 *
+	 * Returns true once, when the client has signalled that the frame it was
+	 * asked to draw is done and the compositor has not answered it yet, and
+	 * writes the _NET_WM_SYNC_REQUEST_COUNTER value the client set for that
+	 * frame into counterValue.
+	 */
+	bool takeFrameReady (uint64_t &counterValue);
 
 	void map ();
 

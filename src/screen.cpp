@@ -5823,23 +5823,16 @@ compSendFrameDrawnMessages (CompScreen *screen, unsigned int intervalUs)
 
     foreach (CompWindow *w, screen->windows ())
     {
-	XSyncValue counterValue;
-	uint64_t   value;
-	long	     drawnData[5];
-	long	     timingsData[5];
+	uint64_t value;
+	long	 drawnData[5];
+	long	 timingsData[5];
 
-	if (!w->priv->frameReady)
+	if (!w->takeFrameReady (value))
 	    continue;
-
-	w->priv->frameReady = false;
 
 	/* Nothing was put on screen for an unmapped window */
 	if (!w->mapNum ())
 	    continue;
-
-	counterValue = w->priv->frameCounterValue;
-	value	     = ((uint64_t) XSyncValueHigh32 (counterValue) << 32) |
-		       XSyncValueLow32 (counterValue);
 
 	/* data[0..1]: the counter value the client set for this frame, echoed
 	 *             back so it can match the message to its own frame.
