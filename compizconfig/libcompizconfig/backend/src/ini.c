@@ -597,7 +597,11 @@ profileNameFilter (const struct dirent *name)
 {
     int length = strlen (name->d_name);
 
-    if (strncmp (name->d_name + length - 6, ".ini", 6))
+    /* ".ini" is four characters, and there has to be a profile name in front of
+     * it. Comparing six bytes against the four of the suffix only ever matched a
+     * file whose name ends in ".ini" preceded by anything but the suffix itself,
+     * so no profile was ever listed. */
+    if (length < 5 || strcmp (name->d_name + length - 4, ".ini"))
 	return 0;
 
     return 1;

@@ -2726,11 +2726,17 @@ checkAndLoadProtoBuf (char *pbPath,
 
     gchar *xmlHash = xmlContentHash (xmlFilePath);
 
+    /* Without the source there is nothing to compare the cache against. Treating
+     * the failed hash as an empty string matched a cache entry written when the
+     * file was unreadable, so a stale one was served for as long as it lived. */
+    if (!xmlHash)
+	return FALSE;
+
     if (pbStat->st_mtime < xmlStat->st_mtime ||     // is .pb older than .xml?
 	!loadPluginMetadataFromProtoBuf (pbPath, pluginBriefPB, NULL) ||
 	(!basicMetadata && pluginBriefPB->info ().basic_metadata ()) ||
 	pluginInfoPB.pb_abi_version () != PB_ABI_VERSION ||
-	pluginInfoPB.content_hash () != (xmlHash ? xmlHash : "") ||
+	pluginInfoPB.content_hash () != xmlHash ||
 	// xml content hash mismatch? (reliable even when mtime is
 	// identical across bootc/ostree deployments)
 	(pluginInfoPB.locale () != "NONE" &&
@@ -2775,9 +2781,12 @@ writePBFile (char *pbFilePath,
     }
 
     gchar *xmlHash = xmlContentHash (xmlFilePath);
-    pluginInfoPB->set_content_hash (xmlHash ? xmlHash : "");
-    if (xmlHash)
-	g_free (xmlHash);
+
+    if (!xmlHash)
+	return;
+
+    pluginInfoPB->set_content_hash (xmlHash);
+    g_free (xmlHash);
 
     pluginInfoPB->set_basic_metadata (basicMetadata);
 

@@ -314,6 +314,9 @@ PrivateCompositeScreen::PrivateCompositeScreen (CompositeScreen *cs) :
     redrawTime (1000 / FALLBACK_REFRESH_RATE),
     optimalRedrawTime (1000 / FALLBACK_REFRESH_RATE),
     outputRates (),
+    fastestIntervalUs (1000000 / FALLBACK_REFRESH_RATE),
+    pacedIntervalUs (1000000 / FALLBACK_REFRESH_RATE),
+    scheduledIntervalUs (0),
     pendingDamage (),
     scheduled (false),
     painting (false),
@@ -833,6 +836,10 @@ outputsFromRandr (CompScreen *screen, std::vector<OutputRate> &out)
 		    o.geometry = CompRect (crtc->x, crtc->y,
 					   crtc->width, crtc->height);
 		    o.rate = r;
+		    o.intervalUs = (unsigned int)
+			(((unsigned long long) pixels * 1000000ULL +
+			  (unsigned long long) mode->dotClock / 2) /
+			 (unsigned long long) mode->dotClock);
 		    out.push_back (o);
 
 		    if (r > maxRate)
@@ -866,11 +873,23 @@ PrivateCompositeScreen::detectRefreshRate ()
 
 	o.geometry = CompRect (0, 0, screen->width (), screen->height ());
 	o.rate = FALLBACK_REFRESH_RATE;
+	o.intervalUs = 1000000 / FALLBACK_REFRESH_RATE;
 	outputRates.push_back (o);
 	rate = FALLBACK_REFRESH_RATE;
     }
 
     redrawTime = optimalRedrawTime = 1000 / rate;
+
+    fastestIntervalUs = 0;
+    foreach (const OutputRate &o, outputRates)
+    {
+	if (o.intervalUs &&
+	    (!fastestIntervalUs || o.intervalUs < fastestIntervalUs))
+	    fastestIntervalUs = o.intervalUs;
+    }
+
+    if (!fastestIntervalUs)
+	fastestIntervalUs = 1000000 / FALLBACK_REFRESH_RATE;
 
     /* One line per screen change, so a mixed-refresh setup can be checked from
      * the session log instead of guessed at. */
@@ -892,29 +911,31 @@ PrivateCompositeScreen::detectRefreshRate ()
     }
 }
 
-int
-PrivateCompositeScreen::rateForPendingDamage () const
+unsigned int
+PrivateCompositeScreen::intervalForPendingDamage () const
 {
-    int rate = 0;
+    unsigned int interval = 0;
 
     if (pendingDamage.isEmpty ())
 	return 0;
 
     /*
-     * Fastest output the damage touches. A window animating on a 60Hz monitor
-     * therefore gets a new frame at 60Hz rather than at the rate of some other
-     * monitor that is not changing - the compositor produces frames only as
-     * often as the outputs that need them can show them. Damage that spans
-     * several outputs still paces at the fastest of them, so a second monitor
-     * is never starved.
+     * Shortest interval among the outputs the damage touches. A window
+     * animating on a 60Hz monitor therefore gets a new frame at 60Hz rather
+     * than at the rate of some other monitor that is not changing - the
+     * compositor produces frames only as often as the outputs that need them
+     * can show them. Damage that spans several outputs still paces at the
+     * fastest of them, so a second monitor is never starved.
      */
     foreach (const OutputRate &o, outputRates)
     {
-	if (o.rate > rate && pendingDamage.intersects (o.geometry))
-	    rate = o.rate;
+	if (o.intervalUs &&
+	    (!interval || o.intervalUs < interval) &&
+	    pendingDamage.intersects (o.geometry))
+	    interval = o.intervalUs;
     }
 
-    return rate;
+    return interval;
 }
 
 CompositeFPSLimiterMode
@@ -938,21 +959,49 @@ PrivateCompositeScreen::scheduleRepaint ()
 	return;
     }
 
-    if (scheduled)
-	return;
+    bool vsyncLike = (FPSLimiterMode == CompositeFPSLimiterModeVSyncLike ||
+		      (pHnd && pHnd->hasVSync ()));
 
-    scheduled = true;
+    unsigned int intervalUs;
+
+    if (vsyncLike)
+	intervalUs = fastestIntervalUs;
+    else
+    {
+	intervalUs = intervalForPendingDamage ();
+
+	/* No damage at all still has to produce a frame eventually, and the
+	 * plugin's own timers want one too. */
+	if (!intervalUs)
+	    intervalUs = fastestIntervalUs;
+    }
+
+    if (!intervalUs)
+	intervalUs = 1000000 / FALLBACK_REFRESH_RATE;
+
+    if (scheduled)
+    {
+	/* Damage that arrived on a faster output can shorten the frame that is
+	 * already queued; do not let the earlier, slower deadline hold it
+	 * back. */
+	if (intervalUs >= scheduledIntervalUs)
+	    return;
+
+	paintTimer.stop ();
+    }
+
+    scheduled           = true;
+    scheduledIntervalUs = intervalUs;
+    pacedIntervalUs     = intervalUs;
 
     int delay;
 
-    if (FPSLimiterMode == CompositeFPSLimiterModeVSyncLike ||
-	(pHnd && pHnd->hasVSync ()))
+    if (vsyncLike)
 	delay = 1;
     else
     {
 	struct timeval now;
-	int        rate = rateForPendingDamage ();
-	int        interval = rate > 0 ? 1000 / rate : optimalRedrawTime;
+	int        interval = (int) ((intervalUs + 999) / 1000);
 	int        elapsed;
 
 	gettimeofday (&now, 0);
@@ -988,6 +1037,12 @@ CompositeScreen::handlePaintTimeout ()
 
     priv->painting = true;
     priv->reschedule = false;
+
+    /* The queued frame is running now, so anything that arrives during it
+     * schedules the next one through reschedule instead of as a shortening. */
+    priv->scheduled = false;
+    priv->scheduledIntervalUs = 0;
+
     gettimeofday (&tv, 0);
 
     if (priv->damageMask)
@@ -1105,11 +1160,11 @@ CompositeScreen::handlePaintTimeout ()
 	donePaint ();
 
 	/* Answer the windows this frame put on screen. Done after the paint so the
-	 * timestamp reflects when the content was ready, and with the interval the
-	 * frame was paced to (optimalRedrawTime, the fastest enabled output) so a
-	 * client's frame clock runs at the real refresh rate instead of a fixed
-	 * 60Hz fallback timer. */
-	compSendFrameDrawnMessages (screen, priv->optimalRedrawTime * 1000);
+	 * timestamp reflects when the content was ready, and with the interval this
+	 * frame was actually paced to - the output that needed it, not the fastest
+	 * output overall - so a client's frame clock runs at the rate the content
+	 * is being shown at instead of a fixed fallback timer. */
+	compSendFrameDrawnMessages (screen, priv->pacedIntervalUs);
 
 	priv->outputShapeChanged = false;
 

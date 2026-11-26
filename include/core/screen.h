@@ -356,6 +356,14 @@ public:
     virtual const CompFileWatchList& getFileWatches () const = 0;
     virtual void updateSupportedWmHints () = 0;
 
+    /**
+     * Declares whether _NET_WM_FRAME_DRAWN and _NET_WM_FRAME_TIMINGS are being
+     * answered. They are advertised in _NET_SUPPORTED only while they are: a
+     * toolkit that sees them stops pacing itself and waits for a message it
+     * would never receive.
+     */
+    virtual void setFrameTimingSupported (bool supported) = 0;
+
     virtual CompWindowList & destroyedWindows () = 0;
     virtual const CompRegion & region () const = 0;
     virtual bool hasOverlappingOutputs () = 0;

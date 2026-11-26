@@ -2551,6 +2551,12 @@ CompScreenImpl::updateSupportedWmHints ()
 }
 
 void
+CompScreenImpl::setFrameTimingSupported (bool supported)
+{
+    privateScreen.frameTimingSupported = supported;
+}
+
+void
 CompScreen::addSupportedAtoms (std::vector<Atom> &atoms)
 {
     WRAPABLE_HND_FUNCTN (addSupportedAtoms, atoms);
@@ -2596,10 +2602,13 @@ CompScreenImpl::_addSupportedAtoms (std::vector<Atom> &atoms)
     atoms.push_back (Atoms::frameExtents);
     atoms.push_back (Atoms::frameWindow);
 
-    /* Advertised so clients know to expect frame timing messages once the
-     * compositing plugin starts sending them. */
-    atoms.push_back (Atoms::wmFrameDrawn);
-    atoms.push_back (Atoms::wmFrameTimings);
+    /* Only while the compositing plugin is answering them; see
+     * setFrameTimingSupported(). */
+    if (privateScreen.frameTimingSupported)
+    {
+	atoms.push_back (Atoms::wmFrameDrawn);
+	atoms.push_back (Atoms::wmFrameTimings);
+    }
 
     atoms.push_back (Atoms::winState);
     atoms.push_back (Atoms::winStateModal);
@@ -5627,6 +5636,7 @@ PrivateScreen::PrivateScreen (CompScreen *screen, cps::WindowManager& windowMana
     clientPointerDeviceId (None),
     invisibleCursor (None),
     initialized (false),
+    frameTimingSupported (false),
     screen(screen),
     screenInfo (),
     snDisplay(0),

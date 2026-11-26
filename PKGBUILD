@@ -14,7 +14,7 @@
 
 pkgname=compiz
 pkgver=0.9.14.2.r25
-pkgrel=5
+pkgrel=6
 pkgdesc="Composite manager for Aiglx and Xgl, with plugins and CCSM (xfce-aerolike fork)"
 url="https://github.com/fiftydinar/compiz-xfce-aerolike"
 arch=('x86_64')
