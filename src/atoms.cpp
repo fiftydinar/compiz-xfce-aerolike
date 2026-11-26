@@ -124,6 +124,9 @@ namespace Atoms {
 
     Atom wmSyncRequestCounter;
 
+    Atom wmFrameDrawn;
+    Atom wmFrameTimings;
+
     Atom wmFullscreenMonitors;
 
     Atom closeWindow;
@@ -293,6 +296,9 @@ namespace Atoms {
 
 	wmSyncRequestCounter =
 	    XInternAtom (dpy, "_NET_WM_SYNC_REQUEST_COUNTER", 0);
+
+	wmFrameDrawn   = XInternAtom (dpy, "_NET_WM_FRAME_DRAWN", 0);
+	wmFrameTimings = XInternAtom (dpy, "_NET_WM_FRAME_TIMINGS", 0);
 
 	wmFullscreenMonitors =
 	    XInternAtom (dpy, "_NET_WM_FULLSCREEN_MONITORS", 0);

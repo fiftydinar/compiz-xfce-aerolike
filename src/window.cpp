@@ -6614,6 +6614,7 @@ PrivateWindow::PrivateWindow () :
     syncWaitTimer (),
 
     syncWait (false),
+    frameReady (false),
     closeRequests (false),
     lastCloseRequestTime (0),
 

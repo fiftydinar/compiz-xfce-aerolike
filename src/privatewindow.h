@@ -453,6 +453,12 @@ class PrivateWindow :
 	bool                 syncWait;
 	CompWindow::Geometry syncGeometry;
 
+	/* Set when the client signals it finished drawing a frame for this window
+	 * (see handleSyncAlarm). Cleared once the compositor has drawn it and
+	 * answered with _NET_WM_FRAME_DRAWN. */
+	bool                 frameReady;
+	XSyncValue           frameCounterValue;
+
 	int closeRequests;
 	Time lastCloseRequestTime;
 

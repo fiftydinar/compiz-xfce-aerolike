@@ -127,6 +127,10 @@ namespace Atoms {
 
     extern Atom wmSyncRequestCounter;
 
+    /* Frame timing, sent to a window after a frame containing it was drawn */
+    extern Atom wmFrameDrawn;
+    extern Atom wmFrameTimings;
+
     extern Atom wmFullscreenMonitors;
 
     extern Atom closeWindow;

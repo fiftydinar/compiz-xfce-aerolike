@@ -461,4 +461,15 @@ private:
     virtual void _averageColorChangeNotify(const unsigned short*) = 0;
 };
 
+/*
+ * Answer the windows whose content this frame just put on screen with
+ * _NET_WM_FRAME_DRAWN and _NET_WM_FRAME_TIMINGS.
+ *
+ * Called by a compositing plugin after it has drawn a frame. intervalUs is the
+ * frame interval the plugin paced that frame to, in microseconds, or 0 when it
+ * has none to report. Toolkits use the drawn timestamp to run their frame clock
+ * at the real refresh rate instead of falling back to a fixed timer.
+ */
+void compSendFrameDrawnMessages (CompScreen *screen, unsigned int intervalUs);
+
 #endif

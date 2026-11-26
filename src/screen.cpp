@@ -35,6 +35,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
 #include <assert.h>
 #include <limits.h>
@@ -2594,6 +2595,11 @@ CompScreenImpl::_addSupportedAtoms (std::vector<Atom> &atoms)
     atoms.push_back (Atoms::wmUserTime);
     atoms.push_back (Atoms::frameExtents);
     atoms.push_back (Atoms::frameWindow);
+
+    /* Advertised so clients know to expect frame timing messages once the
+     * compositing plugin starts sending them. */
+    atoms.push_back (Atoms::wmFrameDrawn);
+    atoms.push_back (Atoms::wmFrameTimings);
 
     atoms.push_back (Atoms::winState);
     atoms.push_back (Atoms::winStateModal);
@@ -5773,4 +5779,88 @@ PrivateScreen::~PrivateScreen ()
 
     if (snDisplay)
 	sn_display_unref (snDisplay);
+}
+
+namespace
+{
+
+/* Monotonic microseconds. Same clock and unit as the server's own frame timing
+ * messages (GetTimeInMicros), and the same one GTK passes to g_get_monotonic_time,
+ * so a client can compare the value against its own clock directly. */
+uint64_t
+monotonicMicroseconds ()
+{
+    struct timespec ts;
+
+    clock_gettime (CLOCK_MONOTONIC, &ts);
+    return (uint64_t) ts.tv_sec * 1000000ULL + (uint64_t) ts.tv_nsec / 1000ULL;
+}
+
+void
+sendFrameMessage (CompScreen *screen, Window id, Atom type, const long data[5])
+{
+    XClientMessageEvent ev;
+
+    ev.type	     = ClientMessage;
+    ev.window	     = id;
+    ev.message_type  = type;
+    ev.format	     = 32;
+    ev.data.l[0]     = data[0];
+    ev.data.l[1]     = data[1];
+    ev.data.l[2]     = data[2];
+    ev.data.l[3]     = data[3];
+    ev.data.l[4]     = data[4];
+
+    XSendEvent (screen->dpy (), id, false, 0, (XEvent *) &ev);
+}
+
+} // namespace
+
+void
+compSendFrameDrawnMessages (CompScreen *screen, unsigned int intervalUs)
+{
+    uint64_t drawn = monotonicMicroseconds ();
+
+    foreach (CompWindow *w, screen->windows ())
+    {
+	XSyncValue counterValue;
+	uint64_t   value;
+	long	     drawnData[5];
+	long	     timingsData[5];
+
+	if (!w->priv->frameReady)
+	    continue;
+
+	w->priv->frameReady = false;
+
+	/* Nothing was put on screen for an unmapped window */
+	if (!w->mapNum ())
+	    continue;
+
+	counterValue = w->priv->frameCounterValue;
+	value	     = ((uint64_t) XSyncValueHigh32 (counterValue) << 32) |
+		       XSyncValueLow32 (counterValue);
+
+	/* data[0..1]: the counter value the client set for this frame, echoed
+	 *             back so it can match the message to its own frame.
+	 * data[2..3]: when the frame was presented, monotonic microseconds.
+	 * data[4]:    unused. */
+	drawnData[0] = (long) (value & 0xffffffffULL);
+	drawnData[1] = (long) (value >> 32);
+	drawnData[2] = (long) (drawn & 0xffffffffULL);
+	drawnData[3] = (long) (drawn >> 32);
+	drawnData[4] = 0;
+
+	/* data[2]: presentation offset against the drawn time. We cannot know the
+	 *          vblank phase, so report 0 rather than invent one.
+	 * data[3]: the frame interval this frame was paced to. */
+	timingsData[0] = drawnData[0];
+	timingsData[1] = drawnData[1];
+	timingsData[2] = 0;
+	timingsData[3] = (long) intervalUs;
+	timingsData[4] = 0;
+
+	sendFrameMessage (screen, w->id (), Atoms::wmFrameDrawn, drawnData);
+	sendFrameMessage (screen, w->id (), Atoms::wmFrameTimings, timingsData);
+    }
 }

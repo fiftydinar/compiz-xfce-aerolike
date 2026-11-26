@@ -108,12 +108,29 @@ and per-window HDR.
 
 ### GTK/Qt frame timing
 
-Compiz does not send `_NET_WM_FRAME_DRAWN`, so toolkit frame clocks fall back to
-their own timer (~60Hz) and animations inside GTK/Qt applications will not use
-the full refresh rate of a fast monitor, however fast compiz itself produces
-frames. That is unchanged by the pacing work here and is a separate piece of
-work: the message layout the server uses is in the fork's `composite/compframe.c`
-if it is ever implemented.
+A compositor drives a toolkit's frame clock with `_NET_WM_FRAME_DRAWN` and
+`_NET_WM_FRAME_TIMINGS`; without them GTK falls back to its own ~60Hz timer and
+animations inside applications do not use the refresh rate of a fast monitor,
+however fast frames are produced.
+
+Compiz sends both now. It advertises them in `_NET_SUPPORTED` and answers each
+window after a frame containing it has been drawn, reusing the
+`_NET_WM_SYNC_REQUEST_COUNTER` it already monitors for resize synchronization:
+
+- the counter value the client set is echoed back in `data[0..1]`, so the client
+  matches the message to its own frame;
+- `data[2..3]` of `_NET_WM_FRAME_DRAWN` is the time the frame was drawn, in
+  monotonic microseconds - the same clock and unit as the server's own messages
+  and as `g_get_monotonic_time()`, so no conversion is needed;
+- `_NET_WM_FRAME_TIMINGS` reports `data[3]` as the interval the frame was paced
+  to (from the per-output table above) and `data[2]`, the presentation offset,
+  as 0: the vblank phase is not knowable from a client, so it is not invented.
+
+This works whatever composites, unlike overlay planes, direct scanout and HDR,
+which need the server to composite and are therefore unavailable here (see
+below). It round-trips nothing: two ClientMessages per frame per window that
+asked for one, sent from the paint call, with the alarm the resize path already
+arms on map.
 
 ## Building
 

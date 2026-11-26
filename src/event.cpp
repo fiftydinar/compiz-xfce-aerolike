@@ -2470,6 +2470,12 @@ static const unsigned short _NET_WM_STATE_TOGGLE = 2;
 		CompWindow* const w(*i);
 		if (w->priv->syncAlarm == sa->alarm)
 		{
+		    /* The client has drawn the frame it was asked for. Remember the
+		     * counter value it set: it has to be echoed back with the frame
+		     * timing messages so the client can match them to its own frame. */
+		    w->priv->frameCounterValue = sa->counter_value;
+		    w->priv->frameReady        = true;
+
 		    w->priv->handleSyncAlarm ();
 		    break;
 		}

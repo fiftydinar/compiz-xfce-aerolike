@@ -1104,6 +1104,13 @@ CompositeScreen::handlePaintTimeout ()
 
 	donePaint ();
 
+	/* Answer the windows this frame put on screen. Done after the paint so the
+	 * timestamp reflects when the content was ready, and with the interval the
+	 * frame was paced to (optimalRedrawTime, the fastest enabled output) so a
+	 * client's frame clock runs at the real refresh rate instead of a fixed
+	 * 60Hz fallback timer. */
+	compSendFrameDrawnMessages (screen, priv->optimalRedrawTime * 1000);
+
 	priv->outputShapeChanged = false;
 
 	foreach (CompWindow *w, screen->windows ())
