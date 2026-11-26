@@ -39,15 +39,16 @@ no patching step at all, and what CI tests is exactly what shipped.
 |---|---|
 | Do not recompile gsettings schemas during make install | From the AUR package. The package installs the generated schemas itself; compiling them in-tree during install fails without a session bus. |
 | Set Aero-like defaults | Default plugin list, virtual desktop 1x1, Glide 2 instead of Magic Lamp, composite/unredirect and opengl/vsync values, grid colors, place defaults. |
-| Detect fullscreen windows per output | Upstream compared against the bounding box of all monitors, so it missed a window filling one monitor and matched one spanning all. |
+| Detect fullscreen windows per output | Upstream compared against the bounding box of all monitors, so it missed a window filling one monitor and matched one spanning all. Detection also takes the state back when the window stops covering an output, and leaves an explicit fullscreen toggle alone. |
 | Invert ring and staticswitcher keybindings | |
 | Fix resetting the profile in ccsm | |
 | Fix resetting settings in ccsm | |
-| Ignore self-minimize requests from unfocused windows | |
-| Invalidate the config cache by content hash, not mtime | A changed option default kept serving the stale metadata cache. |
+| Honour `WM_CHANGE_STATE` from any window | A guard that only minimized focused windows was removed: taskbars and pagers iconify windows with that message, and the window they target is usually not the focused one. |
+| Invalidate the config cache by content hash, not mtime | A changed option default kept serving the stale metadata cache. A cache entry whose source cannot be hashed is not trusted either. |
 | Bind a key to toggle fullscreen in extrawm | |
 | Default opengl/always_swap_buffers to false | Non-full-screen frames take the blit path and copy only the damaged region. Full-screen frames still swap. |
-| Pace frames from the enabled outputs | Replaces the composite plugin's `detect_refresh_rate`/`refresh_rate` options. A single screen-wide rate is meaningless with a framebuffer per monitor, and it was queried with the deprecated screen-wide RandR call, which reports an arbitrary output. Pacing follows the fastest enabled output, so a 144Hz panel is not held to 60 by a 60Hz one. |
+| Pace frames from the enabled outputs | Replaces the composite plugin's `detect_refresh_rate`/`refresh_rate` options. A single screen-wide rate is meaningless with a framebuffer per monitor, and it was queried with the deprecated screen-wide RandR call, which reports an arbitrary output. Pacing follows the outputs the pending damage touches, on the exact interval from the pixel clock rather than on a rate rounded to whole hertz. |
+| Answer `_NET_WM_FRAME_DRAWN` with the client's frame serial | The second counter of `_NET_WM_SYNC_REQUEST_COUNTER` is the one clients advance per frame; the first only moves on resize acknowledgement, so the serial that was echoed back never matched a pending frame. The atoms are also advertised only while the composite plugin answers them. |
 
 ## Running on the phoenix X server
 
@@ -70,8 +71,8 @@ the desktop the way it always has. That split decides everything below.
   60Hz rather than at a faster monitor's rate. See below.
 - **`_NET_WM_FRAME_DRAWN` and `_NET_WM_FRAME_TIMINGS`.** Compiz sends both, so
   toolkit frame clocks in GTK and Qt applications run at the real refresh rate
-  instead of a ~60Hz fallback timer. Works regardless of who composites. See
-  below.
+  instead of a ~60Hz fallback timer. The composite plugin is what sends them, so
+  they are advertised only while it is active. See below.
 - **All compiz effects.** Blur, wobbly, animations, expo, ring, cube, scale - the
   whole reason for using compiz. Every one of them needs the composite plugin.
 - **Per-monitor DPI**, faster X11 rendering under load, and high-priority server
@@ -125,19 +126,26 @@ already vblank-timed one layer down - it would only add latency.
 
 The server keeps a framebuffer per monitor and shows what the compositor produced
 at each monitor's vblank, so a single screen refresh rate is meaningless.
-`detectRefreshRate()` builds a table of enabled outputs with the rate their mode
-runs at, and `scheduleRepaint()` paces to the fastest output that the **pending
-damage** touches:
+`detectRefreshRate()` builds a table of enabled outputs with the interval their
+mode runs at, taken from the pixel clock, and `scheduleRepaint()` paces to the
+fastest output that the **pending damage** touches:
 
 - damage confined to a 60Hz monitor is produced at 60Hz, not at 144Hz because
   another monitor is capable of it;
 - damage spanning several outputs paces at the fastest of them, so a second
   monitor is never starved;
+- damage that arrives on a faster output before the queued timer fires shortens
+  the queued frame instead of waiting out the slower deadline;
 - no damage at all schedules no frame, as before.
+
+The interval is kept in microseconds rather than as a rate rounded to whole
+hertz: 1000 / 60 is 16ms against a 16.667ms frame, and 1000 / 144 is 6ms against
+6.944ms, so pacing on the rounded value late-drops or runs ahead of the panel.
 
 `redrawTime` stays the observed frame interval and `optimalRedrawTime` stays the
 fastest output overall, because plugins read the latter as "the" frame interval
-for animation timing; neither changes with what happens to be damaged.
+for animation timing; neither changes with what happens to be damaged. The frame
+timing messages carry the interval this frame was actually paced to.
 
 The table is logged once per screen change at info level:
 
@@ -178,11 +186,19 @@ A compositor drives a toolkit's frame clock with `_NET_WM_FRAME_DRAWN` and
 animations inside applications do not use a fast monitor no matter how fast
 frames are produced.
 
-Compiz sends both. They are advertised in `_NET_SUPPORTED` and sent to each
-window after a frame containing it has been drawn, reusing the
-`_NET_WM_SYNC_REQUEST_COUNTER` already monitored for resize synchronization:
+Compiz sends both, from the composite plugin, so they are advertised in
+`_NET_SUPPORTED` only while that plugin is active. GTK treats the presence of
+`_NET_WM_FRAME_DRAWN` as the signal to stop pacing itself and wait for the
+compositor, with no timer to fall back on, so promising it without answering it
+would leave every GTK client frozen.
 
-- the counter value the client set is echoed in `data[0..1]`, so the client
+The serial in the message has to be the one the client registered, which is why
+the **second** counter of `_NET_WM_SYNC_REQUEST_COUNTER` is the one to read. A
+client writes an odd value when it starts a frame and an even one when it ends
+it; the even value is what it stores as the frame's serial. The first counter is
+the resize synchronization one and only moves when compiz acknowledges a resize.
+
+- the counter value the client reached is echoed in `data[0..1]`, so the client
   matches the message to its own frame;
 - `data[2..3]` of `_NET_WM_FRAME_DRAWN` is the draw time in monotonic
   microseconds - the same clock and unit as the server's messages and as
