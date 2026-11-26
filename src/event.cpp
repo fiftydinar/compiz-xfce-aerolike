@@ -2030,7 +2030,10 @@ static const unsigned short _NET_WM_STATE_TOGGLE = 2;
 		if (event->xclient.data.l[0] == IconicState)
 		{
 		    if (w->actions () & CompWindowActionMinimizeMask)
-			w->minimize ();
+		    {
+			if (w->focused ())
+			    w->minimize ();
+		    }
 		}
 		else if (event->xclient.data.l[0] == NormalState)
 		{
