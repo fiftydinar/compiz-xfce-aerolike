@@ -747,7 +747,7 @@ class ProfileBackendPage(object):
             if profile == current and not set:
                 self.ProfileComboBox.set_active (index)
                 set = True
-        self.ProfileRemoveButton.set_sensitive (self.ProfileComboBox.get_active() != 0)
+        self.ProfileRemoveButton.set_sensitive(self.ProfileComboBox.get_active() != 0)
 
         self.ProfileComboBox.handler_unblock (self.ProfileHandler)
 
@@ -760,11 +760,14 @@ class ProfileBackendPage(object):
     def ProfileChanged(self, widget):
         name = widget.get_active_text()
         if name == _("Default"):
-            self.Context.ResetProfile()
+            self.ResetProfile(None)
+            self.ProfileRemoveButton.set_sensitive(False)
+            GlobalUpdater.UpdatePlugins()
+            return False
         elif name in self.Context.Profiles:
             self.Context.CurrentProfile = self.Context.Profiles[name]
         else:
-            self.ProfileComboBox.set_active (0)
+            self.ProfileComboBox.set_active(0)
             return
 
         self.ProfileRemoveButton.set_sensitive (self.ProfileComboBox.get_active() != 0)
@@ -797,7 +800,7 @@ class ProfileBackendPage(object):
         activePlugins = self.Context.Plugins['core'].Screen['active_plugins'].Value
         for plugin in self.Context.Plugins.values():
             plugin.Enabled = plugin.Name in activePlugins
-        self.Context.Write()
+        self.Context.Write(onlyChanged=False)
         GlobalUpdater.UpdatePlugins()
     
     def ExportProfile(self, widget):
@@ -880,7 +883,7 @@ class ProfileBackendPage(object):
     def RemoveProfile(self, widget):
         name = self.ProfileComboBox.get_active_text()
         if name != _("Default"):
-            self.Context.ResetProfile()
+            self.ResetProfile(None)
             self.Context.Profiles[name].Delete()
             self.UpdateProfiles()
     
